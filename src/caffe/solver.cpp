@@ -28,7 +28,6 @@ SolverAction::Enum Solver<Dtype>::GetRequestedAction() {
 }
 
 template <typename Dtype>
-//- construct solver with SolverParameter
 Solver<Dtype>::Solver(const SolverParameter& param, const Solver* root_solver)
     : net_(), callbacks_(), root_solver_(root_solver),
       requested_early_exit_(false) {
@@ -50,7 +49,7 @@ void Solver<Dtype>::Init(const SolverParameter& param) {
   CHECK(Caffe::root_solver() || root_solver_)
       << "root_solver_ needs to be set for all non-root solvers";
   LOG_IF(INFO, Caffe::root_solver()) << "Initializing solver from parameters: "
-    << std::endl << param.DebugString(); // 这里打印出solver_params
+    << std::endl << param.DebugString(); /// print solver.prototxt
   param_ = param;
   
   // ------------------------------------------
@@ -58,15 +57,21 @@ void Solver<Dtype>::Init(const SolverParameter& param) {
   APP::prune_method = param_.prune_method();
   APP::criteria = param_.criteria();
   APP::num_once_prune = param_.num_once_prune();
-  APP::prune_interval = param_.prune_interval();
+  APP::prune_interval_begin = param_.prune_interval_begin();
+  APP::prune_interval_end = param_.prune_interval_end();
+  APP::prune_iter_begin = param_.prune_iter_begin();
+  APP::prune_iter_end = param_.prune_iter_end();
+  
+  /// APP::range = param_.range();
   APP::rgamma = param_.rgamma();
   APP::rpower = param_.rpower();
   APP::cgamma = param_.cgamma();
-  APP::cpower = param_.cpower(); 
-  APP::prune_begin_iter = param_.prune_begin_iter();
+  APP::cpower = param_.cpower();
   APP::iter_size = param_.iter_size();
+  //APP::recover_multiplier = param_.recover_multiplier();
   
   // APP::score_decay = param_.score_decay();
+  APP::num_log = 50; //param_.num_log();  
   // ------------------------------------------
 
   CHECK_GE(param_.average_loss(), 1) << "average_loss should be non-negative.";
@@ -337,9 +342,6 @@ void Solver<Dtype>::Solve(const char* resume_file) {
   // should be given, and we will just provide dummy vecs.
   int start_iter = iter_;
   Step(param_.max_iter() - iter_);
-    /*
-     * 注意
-     */
 
   // If we haven't already, save a snapshot after optimization, unless
   // overridden by setting snapshot_after_train := false
@@ -348,8 +350,9 @@ void Solver<Dtype>::Solve(const char* resume_file) {
     Snapshot();
   }
   if (requested_early_exit_) {
+    if (APP::num_log) { Logshot(); }
     LOG(INFO) << "Optimization stopped early.";
-    Logshot();
+    
     return;
   }
   // After the optimization is done, run an additional train and test pass to
@@ -370,7 +373,7 @@ void Solver<Dtype>::Solve(const char* resume_file) {
   if (param_.test_interval() && iter_ % param_.test_interval() == 0) {
     TestAll();
   }
-  Logshot();
+  if (APP::num_log) { Logshot(); }
   LOG(INFO) << "Optimization Done.";
 }
 

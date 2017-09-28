@@ -9,12 +9,16 @@ namespace caffe {
     string APP::prune_method = "None"; // initialized for caffe test, which has no solver but this info is still needed in layer.
     string APP::criteria;
     int APP::num_once_prune;
-    int APP::prune_interval;
+    int APP::prune_interval_begin;
+    int APP::prune_interval_end;
+    int APP::prune_iter_begin;
+    int APP::prune_iter_end;
+    float APP::recover_multiplier;
+    float APP::range = 0.25;
     float APP::rgamma;
     float APP::rpower;
     float APP::cgamma;
     float APP::cpower;
-    int APP::prune_begin_iter;
     int APP::iter_size;
     float APP::score_decay = 0;
     
@@ -23,24 +27,26 @@ namespace caffe {
     int APP::step_ = -1;
     
     /// info shared among layers
-    map<string, int> APP::layer_index[2];
-    int APP::layer_cnt[2] = {0, 0};
+    map<string, int> APP::layer_index;
+    int APP::layer_cnt = -1; /// the number of conv layer
     
-    vector<int> APP::num_pruned_col;
-    vector<int> APP::num_pruned_row;
+    vector<float> APP::num_pruned_col;
+    vector<int>   APP::num_pruned_row;
     vector<vector<bool> > APP::IF_row_pruned;
-    vector<vector<bool> > APP::IF_col_pruned;
+    vector<vector<vector<bool> > > APP::IF_col_pruned;
     vector<vector<float> > APP::history_prob;
-    vector<bool> APP::IF_prune_finished;
+    vector<int> APP::iter_prune_finished;
     vector<float> APP::prune_ratio;
     vector<float> APP::delta;
     vector<float> APP::pruned_ratio;
+    vector<bool> APP::IF_never_updated;
     
     
     vector<int> APP::filter_area;
     vector<int> APP::group;
     vector<int> APP::priority;
     
+    int APP::num_log = 0;
     vector<vector<vector<float> > > APP::log_weight;
     vector<vector<vector<float> > > APP::log_diff;
     vector<vector<int> > APP::log_index;

@@ -21,35 +21,41 @@ public:
     static string prune_method;
     static string criteria;
     static int num_once_prune;
-    static int prune_interval;
+    static int prune_interval_begin;
+    static int prune_interval_end;
+    static int prune_iter_begin;
+    static int prune_iter_end;
+    static float recover_multiplier;
+    static float range;
     static float rgamma;
     static float rpower;
     static float cgamma;
     static float cpower;
-    static int prune_begin_iter;
     static int iter_size;
     static float score_decay;
     
     static int inner_iter;
     static int step_;
     
-    static map<string, int> layer_index[2]; /// 2 for TRAIN and TEST stage
-    static int layer_cnt[2];
+    static map<string, int> layer_index;
+    static int layer_cnt;
     
-    static vector<int> num_pruned_col;
-    static vector<int> num_pruned_row;
+    static vector<float> num_pruned_col;
+    static vector<int>   num_pruned_row;
     static vector<vector<bool> > IF_row_pruned;
-    static vector<vector<bool> > IF_col_pruned;
+    static vector<vector<vector<bool> > > IF_col_pruned; /// use 3 vectors because of: [layer, col, group]
     static vector<vector<float> > history_prob;
-    static vector<bool> IF_prune_finished;
+    static vector<int> iter_prune_finished;
     static vector<float> prune_ratio;
     static vector<float> delta;
     static vector<float> pruned_ratio;
+    static vector<bool> IF_never_updated;
     
     static vector<int> filter_area;
     static vector<int> group;
     static vector<int> priority;
     
+    static int num_log;
     static vector<vector<vector<float> > > log_weight;
     static vector<vector<vector<float> > > log_diff;
     static vector<vector<int> > log_index;

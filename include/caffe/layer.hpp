@@ -90,21 +90,14 @@ class Layer {
   vector<bool> masks_;
   vector<int> indices_;
   vector<Dtype> centroids_;
-  int num_pruned_col;
-  int num_pruned_row;
-  int num_pruned_weight;
-  int num_recovered_column;
   int layer_index;
   Dtype prune_ratio;
   Dtype pruned_ratio;
   Dtype delta;
   bool IF_restore;
   vector<Dtype> history_score;
-
   vector<Dtype> weight_backup;
-  vector<bool> IF_col_pruned;
-  vector<bool> IF_row_pruned;
-  
+
   vector<int> random_col_perm;
   vector<Dtype> history_diff;
   

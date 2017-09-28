@@ -242,27 +242,34 @@ message SolverParameter {
   
   
   // -----------------------------------------
-  // WANGHUAN: hyper-parameters of APP (max index = 55)
+  // WANGHUAN: hyper-parameters of APP (max index = 56)
   // pruning
   optional string prune_method = 41 [default = "None"];
   optional string criteria = 42 [default = "L1-norm"];
-  optional int32 prune_begin_iter = 43;
-  optional int32 num_once_prune = 52 [default = 1]; // how many columns/rows to prune per time
-  optional int32 prune_interval = 53; // how often to prune
-  optional float rgamma = 48; // recover
-  optional float rpower = 49; 
-  optional float cgamma = 50; // compression
-  optional float cpower = 51;
-  // optional float score_decay = 56 [default = 0];
 
-  // decrease weight decay
-  optional string dwd_mode = 44 [default = "None"];
-  optional int32 dwd_begin_iter = 45;
-  optional int32 dwd_end_iter = 46;
-  optional float wd_end = 47; 
-  optional int32 dwd_step = 54;
-  // -----------------------------------------
+  optional float rgamma = 51; // recover
+  optional float rpower = 52; 
+  optional float cgamma = 53; // compression
+  optional float cpower = 54;
+  // optional float score_decay = 56 [default = 0];
   
+  optional int32 prune_interval_begin = 43;
+  optional int32 prune_interval_end = 44;
+  optional int32 prune_iter_begin = 45;
+  optional int32 prune_iter_end = 46;
+  optional int32 num_once_prune = 47 [default = 1]; // how many columns/rows to prune per time
+  // optional float recover_multiplier = 55;
+  // optional float range = 57;
+  
+  // decrease weight decay
+  optional string dwd_mode = 48 [default = "None"];
+  optional float wd_end = 49; 
+  optional int32 dwd_step = 50;
+  
+  // logging
+  // optional int32 num_log = 70 [default = 0]; 
+  // -----------------------------------------
+
 }
 
 // WANGHUAN
@@ -280,6 +287,11 @@ message CenterLossParameter {
   // all preceding axes are retained in the output.
   // May be negative to index from the end (e.g., -1 for the last axis).
   optional int32 axis = 3 [default = 1];
+}
+
+// ShuffleNet
+message ShuffleChannelParameter {
+  optional uint32 group = 1[default = 1]; // The number of group
 }
 
 
@@ -348,7 +360,7 @@ message ParamSpec {
 // NOTE
 // Update the next available ID when you add a new LayerParameter field.
 //
-// LayerParameter next available layer-specific ID: 148 (last added: prune_param)
+// LayerParameter next available layer-specific ID: 149 (last added: shuffle_channel_param)
 message LayerParameter {
   optional string name = 1; // the layer name
   optional string type = 2; // the layer type
@@ -447,6 +459,7 @@ message LayerParameter {
   optional WindowDataParameter window_data_param = 129;
   optional PruneParameter prune_param = 148; // WANGHUAN
   optional CenterLossParameter center_loss_param = 147;
+  optional ShuffleChannelParameter shuffle_channel_param = 149;
 } 
 
 // Message that stores parameters used to apply transformation

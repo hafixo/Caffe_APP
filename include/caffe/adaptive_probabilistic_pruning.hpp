@@ -43,6 +43,9 @@ public:
     
     static int inner_iter;
     static int step_;
+    static long first_time;
+    static long last_time;
+    static int  first_iter;
     static bool IF_alpf; 
     static bool IF_speedup_achieved;
     

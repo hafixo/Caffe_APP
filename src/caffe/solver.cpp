@@ -56,7 +56,7 @@ void Solver<Dtype>::Init(const SolverParameter& param) {
   // ------------------------------------------
   // WANGHUAN, copy prune params
   APP::prune_method = param_.prune_method();
-  APP::criteria = param_.criteria();
+  APP::criteria = ""; //param_.criteria();
   APP::num_once_prune = param_.num_once_prune();
   APP::prune_interval = param_.prune_interval();
   APP::rgamma = 30;   //param_.rgamma();
@@ -297,8 +297,21 @@ void Solver<Dtype>::Step(int iters) {
     /// ----------------------------------------------------------------------
 
     if (display) {
+      // -------------------------------
+      // calculate training speed
+      const time_t current_time = time(NULL);
+      if (APP::last_time == 0) {
+          APP::first_time = current_time;
+          APP::first_iter = iter_;
+      }
+      char train_speed[50];
+      sprintf(train_speed, "%.3f(%.3f)s/iter", (current_time - APP::last_time ) * 1.0 / param_.display(),
+                                               (current_time - APP::first_time) * 1.0 / (iter_ - APP::first_iter));
+      APP::last_time = current_time;
+      // -------------------------------
+      
       LOG_IF(INFO, Caffe::root_solver()) << "Iteration " << iter_
-          << ", smoothed loss = " << smoothed_loss_; 
+          << ", smoothed loss = " << smoothed_loss_ << ", speed = " << train_speed; 
       const vector<Blob<Dtype>*>& result = net_->output_blobs();
       int score_index = 0;
       for (int j = 0; j < result.size(); ++j) {

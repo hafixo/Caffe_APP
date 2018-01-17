@@ -30,6 +30,9 @@ namespace caffe {
     // 1.2 Info shared between solver and layer, initailized here
     int APP::inner_iter = 0;
     int APP::step_ = -1;
+    long APP::first_time = 0;
+    long APP::last_time  = 0;
+    int  APP::first_iter = 0;
     bool APP::IF_alpf = false; /// if all layer prune finished
     bool APP::IF_speedup_achieved = false;
     

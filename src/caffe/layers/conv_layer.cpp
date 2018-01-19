@@ -271,7 +271,7 @@ void ConvolutionLayer<Dtype>::FilterPrune() {
         ++ APP::num_pruned_row[L];
         if (L != APP::layer_cnt - 1) {
             APP::pruned_rows.push_back(r);
-        }  
+        }
     }
     
 
@@ -422,15 +422,27 @@ void ConvolutionLayer<Dtype>::ProbPruneCol(const int& prune_interval) {
         const Dtype kk = APP::kk;
         const Dtype alpha = log(2/kk) / (num_col_to_prune_ - APP::num_pruned_col[L]);
         const Dtype N1 = -log(kk)/alpha;
-        const Dtype k_ = AA / (num_col_to_prune_ - APP::num_pruned_col[L]); /// linear punishment
         
-        for (int j = 0; j < num_col - APP::num_pruned_col[L]; ++j) {
-            
+        /// linear punishment
+        const Dtype k_linear = AA / (num_col_to_prune_ - APP::num_pruned_col[L]); 
+        
+        /// punish according to L1-norm rather than rank
+        const Dtype k_L1 = AA / (col_score[num_col_to_prune_ - APP::num_pruned_col[L]].first - col_score[0].first);
+        
+        for (int j = 0; j < num_col - APP::num_pruned_col[L]; ++j) { // j: rank
             const int col_of_rank_j = col_score[j].second;
             Dtype delta = j < N1 ? AA * exp(-alpha * j) : -AA * exp(-alpha * (2*N1-j)) + 2*kk*AA;
-            if (APP::prune_method == "PPc_l") {
-                delta = AA - k_ * j; /// linear punishment
-            }            
+            
+            /// linear punishment
+            if (APP::prune_method == "PPc_l" || APP::prune_method == "PPc_linear") {
+                delta = AA - k_linear * j; 
+            }
+            
+            // punish according to L1-norm rather than rank
+            if (APP::prune_method == "PPc-L1") {
+                delta = AA - k_L1 * col_score[j].first;
+            }
+
             const Dtype old_prob = APP::history_prob[L][col_of_rank_j];
             const Dtype new_prob = std::min(std::max(old_prob - delta, Dtype(0)), Dtype(1));
             APP::history_prob[L][col_of_rank_j] = new_prob;
@@ -465,15 +477,92 @@ void ConvolutionLayer<Dtype>::ProbPruneCol(const int& prune_interval) {
         muweight[i] *= APP::masks[L][i];
     }
     this->IF_restore = true;
-    for (int i = 0; i < count; ++i) { 
-        muweight[i] *= APP::masks[L][i]; 
-    }
 }
 
 
-
+// This part of code is implemented for rebuttal, which will be transfered. 20180118
 template <typename Dtype> 
-void ConvolutionLayer<Dtype>::ProbPruneRow() {}
+void ConvolutionLayer<Dtype>::ProbPruneRow(const int& prune_interval) {
+    Dtype* muweight = this->blobs_[0]->mutable_cpu_data();
+    const int count = this->blobs_[0]->count();
+    const int num_row = this->blobs_[0]->shape()[0];
+    const int num_col = count / num_row;
+    const string layer_name = this->layer_param_.name();
+    const int L = APP::layer_index[layer_name];
+    const int num_row_to_prune_ = ceil(APP::prune_ratio[L] * num_row);
+
+    /// Calculate history score
+    typedef std::pair<Dtype, int> mypair;
+    vector<mypair> row_score(num_row);
+    for (int i = 0; i < num_row; ++i) {
+        row_score[i].second = i; /// index
+        Dtype score = 0;
+        for (int j = 0; j < num_col; ++j) {
+            score += fabs(muweight[i * num_col +j]);
+        }
+        APP::history_score[L][i] = APP::score_decay * APP::history_score[L][i] + score;
+        row_score[i].first = APP::history_score[L][i];
+        if (APP::IF_row_pruned[L][i]) { row_score[i].first = INT_MAX; } /// make the pruned columns "float" up
+    }
+    sort(row_score.begin(), row_score.end());
+    
+
+    /// Update history_prob
+    if ((APP::step_ - 1) % prune_interval == 0 && APP::inner_iter == 0) {
+        /// Print and check
+        cout << "update prob: " << layer_name << " step: " << APP::step_ << endl;
+        cout << "score: ";   for (int i = 0; i < SHOW_NUM; ++i) { cout << row_score[i].first  << " "; }
+        cout << "\n  row: "; for (int i = 0; i < SHOW_NUM; ++i) { cout << row_score[i].second << " "; }
+        cout << "\n prob: "; for (int i = 0; i < SHOW_NUM; ++i) { cout << APP::history_prob[L][row_score[i].second] << " "; }
+        cout << "\n";
+    
+        /// Calculate functioning probability of each weight
+        const Dtype AA = APP::AA;
+        const Dtype kk = APP::kk;
+        const Dtype alpha = log(2/kk) / (num_row_to_prune_ - APP::num_pruned_row[L]);
+        const Dtype N1 = -log(kk)/alpha;
+        
+        for (int i = 0; i < num_row - APP::num_pruned_row[L]; ++i) {
+            const int row_of_rank_i = row_score[i].second;
+            Dtype delta = i < N1 ? AA * exp(-alpha * i) : -AA * exp(-alpha * (2*N1-i)) + 2*kk*AA;
+            const Dtype old_prob = APP::history_prob[L][row_of_rank_i];
+            const Dtype new_prob = std::min(std::max(old_prob - delta, Dtype(0)), Dtype(1));
+            APP::history_prob[L][row_of_rank_i] = new_prob;
+            
+            if (new_prob == 0) {
+                ++ APP::num_pruned_row[L];
+                APP::IF_row_pruned[L][row_of_rank_i] = true;  
+                for (int j = 0; j < num_col; ++j) { 
+                    muweight[row_of_rank_i * num_col + j] = 0;
+                } /// once pruned, zero out weights
+                if (L != APP::layer_cnt - 1) {
+                    APP::pruned_rows.push_back(row_of_rank_i);
+                }
+            }
+            
+            // Print
+            if (new_prob > old_prob) {
+                cout << "recover prob: " << layer_name << "-" << row_of_rank_i 
+                     << "  old prob: " << old_prob
+                     << "  new prob: " << new_prob << endl;
+            }
+        }
+    }
+
+    // With probability updated, generate masks and do pruning
+    Dtype rands[num_row];
+    caffe_rng_uniform(num_row, (Dtype)0, (Dtype)1, rands);
+    for (int i = 0; i < count; ++i) {
+        const int row_index = i / num_col;
+        const int col_index = i % num_col;
+        const bool cond1 = rands[row_index] < APP::history_prob[L][row_index];
+        const bool cond2 = !APP::IF_col_pruned[L][col_index][0];
+        APP::masks[L][i] = (cond1 && cond2) ? 1 : 0; // Only when the row is assigned with mask 1 and the col is not pruned, the weight gets mask 1.
+        this->weight_backup[i] = muweight[i];
+        muweight[i] *= APP::masks[L][i];
+    }
+    this->IF_restore = true;
+}
 
 template <typename Dtype> 
 void ConvolutionLayer<Dtype>::CleanWorkForPP() {
@@ -537,9 +626,7 @@ void ConvolutionLayer<Dtype>::UpdateNumPrunedRow() {
 }
 
 template <typename Dtype> 
-void ConvolutionLayer<Dtype>::UpdateNumPrunedCol() {
-    if (!APP::pruned_rows.size()) { return; }
-    
+void ConvolutionLayer<Dtype>::UpdateNumPrunedCol() {    
     const int L = APP::layer_index[this->layer_param_.name()];
     const int count   = this->blobs_[0]->count();
     const int num_row = this->blobs_[0]->shape()[0];

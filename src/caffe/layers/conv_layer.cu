@@ -39,7 +39,8 @@ void ConvolutionLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
                     if (APP::step_-1 - APP::iter_prune_finished[L+1] <= 1) {
                         UpdateNumPrunedRow();
                     }
-                } else if ((mthd == "PPr" || mthd == "FP") && L != 0) {
+                } else if ((mthd == "PPr" || mthd == "FP") && L != 0 && APP::pruned_rows.size()) {
+                    cout << "pruned_rows.size(): " << APP::pruned_rows.size() << endl;
                     UpdateNumPrunedCol();
                 } /// Note we don't update column for TP, because their method didn't mention this.
             }
@@ -87,7 +88,9 @@ void ConvolutionLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
                     ProbPruneCol();
                 }
             } else if (mthd == "PPr" && IF_hppf()) {
-                ProbPruneRow();
+                if (APP::prune_interval) {
+                    ProbPruneRow(APP::prune_interval);
+                }
             } else if (mthd == "Reg_Col") {
                 PruneMinimals(APP::prune_threshold);
             }
@@ -126,18 +129,21 @@ void ConvolutionLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
         }
     } else {
         if (this->IF_mask && APP::iter_prune_finished[L] == INT_MAX && mthd.substr(0, 2) == "PP") {
-            Dtype rands[num_col];
-            caffe_rng_uniform(num_col, (Dtype)0, (Dtype)1, rands);
+            const int num_prune_unit = (mthd == "PPr") ? num_row : num_col;
+            Dtype rands[num_prune_unit];
+            caffe_rng_uniform(num_prune_unit, (Dtype)0, (Dtype)1, rands);
             for (int i = 0; i < count; ++i) {
-                APP::masks[L][i] = rands[i % num_col] < APP::history_prob[L][i % num_col] ? 1 : 0; /// generate masks
-            }              
-            for (int i = 0; i < count; ++i) { 
-                this->weight_backup[i] = muweight[i]; /// backup weights
-            } 
+                const int row_index = i / num_col;
+                const int col_index = i % num_col;
+                const bool cond1 = (mthd == "PPr") ? rands[row_index] < APP::history_prob[L][row_index]
+                                                   : rands[col_index] < APP::history_prob[L][col_index];
+                const bool cond2 = (mthd == "PPr") ? !APP::IF_col_pruned[L][col_index][0]
+                                                   : !APP::IF_row_pruned[L][row_index];
+                APP::masks[L][i] = (cond1 && cond2) ? 1 : 0;
+                this->weight_backup[i] = muweight[i]; // backup weights
+                muweight[i] *= APP::masks[L][i];
+            }
             this->IF_restore = true;
-            for (int i = 0; i < count; ++i) { 
-                muweight[i] *= APP::masks[L][i]; /// apply masks
-            } 
         }
     }
   /// ------------------------------------------------------

@@ -440,7 +440,7 @@ void ConvolutionLayer<Dtype>::ProbPruneCol(const int& prune_interval) {
             
             // punish according to L1-norm rather than rank
             if (APP::prune_method == "PPc-L1") {
-                delta = AA - k_L1 * col_score[j].first;
+                delta = AA - k_L1 * (col_score[j].first-col_score[0].first);
             }
 
             const Dtype old_prob = APP::history_prob[L][col_of_rank_j];

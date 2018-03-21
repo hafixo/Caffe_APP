@@ -93,7 +93,7 @@ void InnerProductLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
         if (IF_prune && APP<Dtype>::iter_prune_finished[L] == INT_MAX) {
             if (coremthd_ == "Reg") {
                 PruneMinimals();
-            } else if (coremthd_ == "PP" && APP<Dtpe>::prune_unit == "Weight") {
+            } else if (coremthd_ == "PP" && APP<Dtype>::prune_unit == "Weight") {
                 ProbPruneWeight(APP<Dtype>::prune_interval);
             }
             UpdatePrunedRatio();

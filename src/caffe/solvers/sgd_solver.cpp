@@ -1073,26 +1073,6 @@ void SGDSolver<Dtype>::Regularize(int param_id) {
         
         //TODO 20180321
         
-
-        // compute reg multiplier for those "bad" columns, "good" columns are spared with zero reg.
-        const Dtype AA = (this->iter_ < APP<Dtype>::reg_cushion_iter) ? ((this->iter_+1)*1.0/APP<Dtype>::reg_cushion_iter * APP<Dtype>::AA) : APP<Dtype>::AA; // TODO: replace this 2000 with more consideration
-        const Dtype kk = APP<Dtype>::kk;
-        const Dtype alpha = log(2/kk) / (num_weight_to_prune - num_pruned_weight + 1);
-        const Dtype N1 = -log(kk)/alpha;
-        vector<Dtype> reg_multiplier(count, -1);
-        
-        for (int rk = 0; rk < count - num_pruned_weight; ++rk) {
-            const int w_of_rank_rk = IF_use_hhrank ? w_hhrank[rk + num_pruned_weight].second : w_hrank[rk + num_pruned_weight].second; // Note the real rank is j + num_pruned_col
-            const Dtype Delta = rk < N1 ? AA * exp(-alpha * rk) : -AA * exp(-alpha * (2*N1-rk)) + 2*kk*AA;
-            const Dtype old_reg = APP<Dtype>::history_reg[L][w_of_rank_rk];
-            const Dtype new_reg = std::max(old_reg + Delta, Dtype(0));
-            APP<Dtype>::history_reg[L][w_of_rank_rk] = new_reg;
-            reg_multiplier[w_of_rank_rk] = new_reg;
-        }
-        
-        for (int i = 0; i < count; ++i) {
-            net_params[param_id]->mutable_cpu_diff()[i] += reg_multiplier[i] * weight[i];
-        }
       } else {    
           LOG(FATAL) << "Unknown regularization type: " << regularization_type;
       }

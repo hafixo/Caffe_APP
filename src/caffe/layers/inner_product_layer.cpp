@@ -196,8 +196,6 @@ void InnerProductLayer<Dtype>::ProbPruneWeight(const int& prune_interval) {
     const string layer_name = this->layer_param_.name();
     const int L = APP<Dtype>::layer_index[layer_name];
     const int count   = this->blobs_[0]->count();
-    const int num_row = this->blobs_[0]->shape()[0];
-    const int num_col = count / num_row;
     Dtype* muweight = this->blobs_[0]->mutable_cpu_data();
     
     if ((APP<Dtype>::step_ - 1) % prune_interval == 0 && APP<Dtype>::inner_iter == 0) {
@@ -210,11 +208,11 @@ void InnerProductLayer<Dtype>::ProbPruneWeight(const int& prune_interval) {
         const Dtype u = (score_max + score_min) / 2; // mean
         const Dtype sigma = (score_max - score_min) / 8; //stddev assumption: all weights are included in 4-sigma scope
         const Dtype prune_ratio = (APP<Dtype>::prune_ratio[L] < 0.5) ? 1 - APP<Dtype>::prune_ratio[L] : APP<Dtype>::prune_ratio[L]; // the lookup table only contains half of the normal distribution
-        const normalized_prune_ratio = round(prune_ratio / 0.05) * 0.05; // e.g. 0.63 -> 0.65; 0.05 is the prune ratio step 
-        const index = int(normalized_prune_ratio - 0.5) / 0.05);
+        const Dtype normalized_prune_ratio = round(prune_ratio / 0.05) * 0.05; // e.g. 0.63 -> 0.65; 0.05 is the prune ratio step 
+        const int index = int((normalized_prune_ratio - 0.5) / 0.05);
         const Dtype score_thr = APP<Dtype>::prune_ratio[L] > 0.5
-                                    ? u + APP<Dtpe>::normal_lookup_table[index] * sigma
-                                    : u - APP<Dtpe>::normal_lookup_table[index] * sigma;
+                                    ? u + APP<Dtype>::normal_lookup_table[index] * sigma
+                                    : u - APP<Dtype>::normal_lookup_table[index] * sigma;
                
         
         // assign Delta

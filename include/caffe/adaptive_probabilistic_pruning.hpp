@@ -102,6 +102,8 @@ public:
     static string snapshot_prefix;
     static string prune_state_dir;
     static string mask_generate_mechanism;
+    
+    static vector<Dtype> normal_lookup_table;
     /// --------------------------------
     
     static int window_size;
@@ -215,6 +217,8 @@ public:
     template<typename Dtype>  string  APP<Dtype>::snapshot_prefix;
     template<typename Dtype>  string  APP<Dtype>::prune_state_dir = "/PruneStateSnapshot/";
     template<typename Dtype>  string  APP<Dtype>::mask_generate_mechanism = "element-wise";
+    
+    template<typename Dtype>  vector<Dtype> APP<Dtype>::normal_lookup_table;
     /// --------------------------------
 
     // use window proposal or score decay ----- legacy

@@ -42,6 +42,7 @@ class InnerProductLayer : public Layer<Dtype> {
   
   // Added by WANGHUAN for pruning
   virtual void ComputeBlobMask();
+  virtual void ProbPruneWeight(const int& prune_interval);
   virtual void PruneMinimals();
   virtual void PruneSetUp(const PruneParameter& prune_param);
   virtual void Print(const int& L, char mode);

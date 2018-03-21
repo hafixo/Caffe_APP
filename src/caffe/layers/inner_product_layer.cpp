@@ -61,8 +61,13 @@ void InnerProductLayer<Dtype>::PruneSetUp(const PruneParameter& prune_param) {
     APP<Dtype>::hscore.push_back( vector<Dtype>(num_, 0) );
     APP<Dtype>::hrank.push_back( vector<Dtype>(num_, 0) );
     APP<Dtype>::hhrank.push_back( vector<Dtype>(num_, 0) );
-    APP<Dtype>::history_reg.push_back( vector<Dtype>(num_, 0) );
+    APP<Dtype>::history_reg.push_back( vector<Dtype>(num_, 0) );    
 
+    const Dtype normal_lookup_table[10] = {0, 0.125, 0.255, 0.385, 0.525, 0.675, 0.845, 1.035, 1.285, 1.645};
+    for (int i = 0; i < 10; ++i) {
+        APP<Dtype>::normal_lookup_table.push_back(normal_lookup_table[i]);
+    } // TODO: improve this
+    
     // Info shared among layers
     APP<Dtype>::group.push_back(1);
     APP<Dtype>::priority.push_back(prune_param.priority());
@@ -184,6 +189,72 @@ Index   DiffBeforeMasked   Mask   Prob - conv1
         }
     }
 }
+
+
+template <typename Dtype>
+void InnerProductLayer<Dtype>::ProbPruneWeight(const int& prune_interval) {
+    const string layer_name = this->layer_param_.name();
+    const int L = APP<Dtype>::layer_index[layer_name];
+    const int count   = this->blobs_[0]->count();
+    const int num_row = this->blobs_[0]->shape()[0];
+    const int num_col = count / num_row;
+    Dtype* muweight = this->blobs_[0]->mutable_cpu_data();
+    
+    if ((APP<Dtype>::step_ - 1) % prune_interval == 0 && APP<Dtype>::inner_iter == 0) {
+        // estimate threhold score
+        Dtype score_min = 99999, score_max = 0;
+        for (int i = 0; i < count; ++i) {
+            score_max = fabs(muweight[i]) > score_max ? fabs(muweight[i]) : score_max;
+            score_min = fabs(muweight[i]) < score_min ? fabs(muweight[i]) : score_min;
+        }
+        const Dtype u = (score_max + score_min) / 2; // mean
+        const Dtype sigma = (score_max - score_min) / 8; //stddev assumption: all weights are included in 4-sigma scope
+        const Dtype prune_ratio = (APP<Dtype>::prune_ratio[L] < 0.5) ? 1 - APP<Dtype>::prune_ratio[L] : APP<Dtype>::prune_ratio[L]; // the lookup table only contains half of the normal distribution
+        const normalized_prune_ratio = round(prune_ratio / 0.05) * 0.05; // e.g. 0.63 -> 0.65; 0.05 is the prune ratio step 
+        const index = int(normalized_prune_ratio - 0.5) / 0.05);
+        const Dtype score_thr = APP<Dtype>::prune_ratio[L] > 0.5
+                                    ? u + APP<Dtpe>::normal_lookup_table[index] * sigma
+                                    : u - APP<Dtpe>::normal_lookup_table[index] * sigma;
+               
+        
+        // assign Delta
+        const Dtype AA = APP<Dtype>::AA;
+        const Dtype k1 = AA / (score_thr - score_min);
+        const Dtype k2 = AA / (score_max - score_min);
+        for (int i = 0; i < count; ++i) {
+            const Dtype Delta = fabs(muweight[i]) < score_thr 
+                                    ? AA - k1 * (fabs(muweight[i]) - score_min)
+                                    : k2 * (score_thr - fabs(muweight[i]));
+            const Dtype old_prob = APP<Dtype>::history_prob[L][i];
+            const Dtype new_prob = min(max(old_prob - Delta, Dtype(0)), Dtype(1)) ;
+            APP<Dtype>::history_prob[L][i] = new_prob;
+            
+            if (new_prob == 0) {
+                ++ APP<Dtype>::num_pruned_weight[L];
+                // APP<Dtype>::IF_weight_pruned[L][i] = true;
+            }
+            
+            if (new_prob > old_prob) {
+                cout << "recover prob: " << layer_name << "-" << i 
+                     << "  old prob: " << old_prob
+                     << "  new prob: " << new_prob << endl;
+            }
+        }
+    }
+    
+    // Generate masks
+    Dtype rands[count / 10];
+    for (int i = 0; i < count; ++i) {
+        if (i % (count/10) == 0) {
+            caffe_rng_uniform(count/10, (Dtype)0, (Dtype)1, rands);
+        }
+        APP<Dtype>::masks[L][i] = rands[i%(count/10)] < APP<Dtype>::history_prob[L][i] ? 1 : 0;
+        this->weight_backup[i] = muweight[i];
+        muweight[i] *= APP<Dtype>::masks[L][i];
+    }
+    this->IF_restore = true;
+}
+
 
 template <typename Dtype>
 void InnerProductLayer<Dtype>::IF_alpf() {

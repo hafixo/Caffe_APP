@@ -940,23 +940,10 @@ void SGDSolver<Dtype>::Regularize(int param_id) {
                        net_params[param_id]->mutable_gpu_diff());    
         
         
-        // some occasions to return
-        const int L = param_id / 2; // TODO: improve
-        bool IF_find_layer_name = false;
-        std::map<string,int>::iterator it;
-        string layer_name;
-        for (it = APP<Dtype>::layer_index.begin(); it != APP<Dtype>::layer_index.end(); ++it) {
-            if (it->second == L) {
-                IF_find_layer_name = true;
-                layer_name = it->first;
-                break;
-            }
-        }
-        if (!IF_find_layer_name) { return; }
-        if (APP<Dtype>::iter_prune_finished[L] != INT_MAX) { return; }
-        const vector<int>& shape = net_params[param_id]->shape();
-        if (shape.size() == 1) { return; } // do not reg biases
-        
+        // If return
+        const string& layer_name = this->net_->layer_names()[this->net_->param_layer_indices()[param_id].first];
+        const int L = GetLayerIndex(param_id);
+        if (L == -1) { return; }
         
         const Dtype* weight = net_params[param_id]->cpu_data();
         const int count = net_params[param_id]->count();
@@ -1016,7 +1003,7 @@ void SGDSolver<Dtype>::Regularize(int param_id) {
         // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
         
         
-        // Print: Check rank, j is column number 
+        // Print: Check rank, j is column number
         char iter[10]; sprintf(iter, "%6d", this->iter_ + 1); // max_iter should be in [0, 999999]
         cout << iter << "-" << layer_name << (IF_use_hhrank ? "hhrank:" : "hrank");
         for (int i = 0; i < 100; ++i) { // why i cannot be 1000-1200?
@@ -1064,8 +1051,49 @@ void SGDSolver<Dtype>::Regularize(int param_id) {
             net_params[param_id]->mutable_cpu_diff()[i] += reg_multiplier[i] * weight[i];
         }
         
-      
-      } else {
+      } else if (regularization_type == "SR_Weight") {
+        // SR used to compress large DNN, not using ranking 
+        
+        // add weight decay, weight decay still used
+        caffe_gpu_axpy(net_params[param_id]->count(),
+                       local_decay,
+                       net_params[param_id]->gpu_data(),
+                       net_params[param_id]->mutable_gpu_diff());    
+        
+        
+        // If return
+        // const string& layer_name = this->net_->layer_names()[this->net_->param_layer_indices()[param_id].first];
+        const int L = GetLayerIndex(param_id);
+        if (L == -1) { return; }
+        
+        const Dtype* weight = net_params[param_id]->cpu_data();
+        const int count = net_params[param_id]->count();
+        const int num_weight_to_prune = ceil(count * APP<Dtype>::prune_ratio[L]);
+        const int num_pruned_weight = APP<Dtype>::num_pruned_weight[L];
+        
+        //TODO 20180321
+        
+
+        // compute reg multiplier for those "bad" columns, "good" columns are spared with zero reg.
+        const Dtype AA = (this->iter_ < APP<Dtype>::reg_cushion_iter) ? ((this->iter_+1)*1.0/APP<Dtype>::reg_cushion_iter * APP<Dtype>::AA) : APP<Dtype>::AA; // TODO: replace this 2000 with more consideration
+        const Dtype kk = APP<Dtype>::kk;
+        const Dtype alpha = log(2/kk) / (num_weight_to_prune - num_pruned_weight + 1);
+        const Dtype N1 = -log(kk)/alpha;
+        vector<Dtype> reg_multiplier(count, -1);
+        
+        for (int rk = 0; rk < count - num_pruned_weight; ++rk) {
+            const int w_of_rank_rk = IF_use_hhrank ? w_hhrank[rk + num_pruned_weight].second : w_hrank[rk + num_pruned_weight].second; // Note the real rank is j + num_pruned_col
+            const Dtype Delta = rk < N1 ? AA * exp(-alpha * rk) : -AA * exp(-alpha * (2*N1-rk)) + 2*kk*AA;
+            const Dtype old_reg = APP<Dtype>::history_reg[L][w_of_rank_rk];
+            const Dtype new_reg = std::max(old_reg + Delta, Dtype(0));
+            APP<Dtype>::history_reg[L][w_of_rank_rk] = new_reg;
+            reg_multiplier[w_of_rank_rk] = new_reg;
+        }
+        
+        for (int i = 0; i < count; ++i) {
+            net_params[param_id]->mutable_cpu_diff()[i] += reg_multiplier[i] * weight[i];
+        }
+      } else {    
           LOG(FATAL) << "Unknown regularization type: " << regularization_type;
       }
 

@@ -77,8 +77,8 @@ void SGDSolver<Dtype>::PreSolve() {
   history_.clear();
   update_.clear();
   temp_.clear();
-  tmp_.clear(); // @minsuntse, for reg pruning
-  history_reg_.clear(); // @mingsuntse
+  tmp_.clear(); // @ming, for reg pruning
+  history_reg_.clear(); // @ming
   for (int i = 0; i < net_params.size(); ++i) {
     const vector<int>& shape = net_params[i]->shape();
     history_.push_back(shared_ptr<Blob<Dtype> >(new Blob<Dtype>(shape)));
@@ -92,7 +92,6 @@ void SGDSolver<Dtype>::PreSolve() {
 template <typename Dtype>
 void SGDSolver<Dtype>::ClipGradients() {
   const Dtype clip_gradients = this->param_.clip_gradients();
-  // cout << "clip_gradients: " << clip_gradients << endl; // WANGHUAN
   if (clip_gradients < 0) { return; }
   const vector<Blob<Dtype>*>& net_params = this->net_->learnable_params();
   Dtype sumsq_diff = 0;
@@ -113,8 +112,10 @@ void SGDSolver<Dtype>::ClipGradients() {
 
 template <typename Dtype>
 void SGDSolver<Dtype>::ApplyUpdate() {
+  #ifdef ShowTimingLog
   cout << "ApplyUpdate start timing" << endl;
   clock_t t1 = clock();
+  #endif
   
   CHECK(Caffe::root_solver()); /// 更新梯度是由主solver来做的
   Dtype rate = GetLearningRate();
@@ -122,23 +123,29 @@ void SGDSolver<Dtype>::ApplyUpdate() {
     LOG(INFO) << "Iteration " << this->iter_ << ", lr = " << rate;
   }
   ClipGradients();
-  cout << "after clip_gradients: " << (double)(clock() - t1) / CLOCKS_PER_SEC << endl;
-  ClearHistory(); // WANGHUAN
-  cout << "after ClearHistory: " << (double)(clock() - t1) / CLOCKS_PER_SEC << endl;
+  #ifdef ShowTimingLog
+  cout << "  after clip_gradients: " << (double)(clock() - t1) / CLOCKS_PER_SEC << endl;
+  #endif
+  if (APP::step_ % 100 == 0) {  
+    ClearHistory(); // There is no need to ClearHistory each iteration.
+  }
+  #ifdef ShowTimingLog
+  cout << "  after ClearHistory: " << (double)(clock() - t1) / CLOCKS_PER_SEC << endl;
+  #endif
   for (int param_id = 0; param_id < this->net_->learnable_params().size();
        ++param_id) {
-
-    // added by WANGHUAN
-    // std::cout << "learnable_params().size(): " << this->net_->learnable_params().size() << std::endl;
-    // std::cout << this->net_->name() << std::endl;
-
     Normalize(param_id);
     Regularize(param_id);
     ComputeUpdateValue(param_id, rate);
   }
-  cout << "after ComputeUpdateValue: " << (double)(clock() - t1) / CLOCKS_PER_SEC << endl;
+  #ifdef ShowTimingLog
+  cout << "  after ComputeUpdateValue etc.: " << (double)(clock() - t1) / CLOCKS_PER_SEC << endl;
+  #endif
   this->net_->Update();
-  cout << "in ApplyUpdate: " << (double)(clock() - t1) / CLOCKS_PER_SEC << endl;
+  #ifdef ShowTimingLog
+  cout << "Time in ApplyUpdate: " << (double)(clock() - t1) / CLOCKS_PER_SEC << endl;
+  #endif
+  
 }
 
 template <typename Dtype>
@@ -346,8 +353,10 @@ void SGDSolver<Dtype>::Regularize(int param_id) {
         const int L = GetLayerIndex(param_id);
         if (L == -1) { return; }
         
+        #ifdef ShowTimingLog
         cout << layer_name << " Reg_Col start timing" << endl;
         clock_t t1 = clock();
+        #endif
 
         const Dtype* weight = net_params[param_id]->cpu_data();
         const int count = net_params[param_id]->count();
@@ -375,7 +384,9 @@ void SGDSolver<Dtype>::Regularize(int param_id) {
             }
             sort(col_score.begin(), col_score.end());
             
+            #ifdef ShowTimingLog
             cout  << "  after 1st sort: " << (double)(clock() - t1)/CLOCKS_PER_SEC << "s" << endl;
+            #endif
             
             // Make new criteria by rank: history_rank
             const int n = this->iter_ + 1; // No.n iter (n starts from 1)
@@ -397,7 +408,9 @@ void SGDSolver<Dtype>::Regularize(int param_id) {
             }
             sort(col_history_rank.begin(), col_history_rank.end());
             
+            #ifdef ShowTimingLog
             cout  << "  after 2nd sort: " << (double)(clock() - t1)/CLOCKS_PER_SEC << "s" << endl;
+            #endif
 
             // Print: Check rank, j is column number --------------------
             // char iter[10];
@@ -448,30 +461,37 @@ void SGDSolver<Dtype>::Regularize(int param_id) {
             // cudaMemcpy(muhistory_reg_, this->history_reg2, sizeof(Dtype) * count, cudaMemcpyHostToDevice);
             
         }
+        #ifdef ShowTimingLog
         cout  << "  after calculate reg term: " << (double)(clock() - t1)/CLOCKS_PER_SEC << "s" << endl;
+        #endif
         
-        // check reg
-        const string mark = (APP::prune_unit == "Col") ? "c" : "r";
-        if (APP::step_ % 10 == 0) {
+        /*
+        //Check reg
+        if (APP::step_ % 1 == 0) {
             std::cout << layer_name << "  selective regs: " << std::endl;
-            for (int j = 0; j < NUM_SHOW; ++j) {
-                const string mark2 = j < 9 ? mark + " " : mark;
-                cout << mark2 << j+1 << ":    " << APP::history_reg[L][j] << endl;
+            for (int j = 0; j < APP::show_num_weight; ++j) {
+                const string mark = j < 9 ? " c" : "c";
+                cout << mark << j+1 << ":    " << history_reg_[param_id]->cpu_data()[j] << endl;
             }
         }
+        */
                 
         //Apply Reg
         caffe_gpu_mul(count,
                       net_params[param_id]->gpu_data(),
                       history_reg_[param_id]->gpu_data(),
                       tmp_[param_id]->mutable_gpu_data());
+        #ifdef ShowTimingLog
         cout << "  after gpu mul: " << (double)(clock() - t1)/CLOCKS_PER_SEC << "s" << endl;
+        #endif
         
         caffe_gpu_add(count,
                       tmp_[param_id]->gpu_data(),
                       net_params[param_id]->gpu_diff(),
                       net_params[param_id]->mutable_gpu_diff()); 
+        #ifdef ShowTimingLog
         cout << "  after gpu add, end of Reg_Col: " << (double)(clock() - t1)/CLOCKS_PER_SEC << "s" << endl;
+        #endif
         
       } else if (regularization_type == "Reg_Weight") {
         // SR used to compress large DNN, not using ranking 
@@ -616,39 +636,46 @@ void SGDSolver<Dtype>::ComputeUpdateValue(int param_id, Dtype rate) {
   }
 }
 
+
+// template <typename Dtype>
+// void SGDSolver<Dtype>::ClearHistory(const int& L) {
+    // const int L = APP<Dtype>::layer_index[layer_name];
+    // const int count = APP<Dtype>::masks[L].size();
+    // Dtype* tmp = new Dtype[count]; /// TODEBUG: Why cannot use bool?
+    // for (int k = 0; k < count; ++k) {
+        // tmp[k] = APP<Dtype>::masks[L][k];
+    // }
+    // caffe_mul(count, 
+              // (const Dtype*) tmp, 
+              // history_[param_id]->cpu_data(), 
+              // history_[param_id]->mutable_cpu_data());
+    // delete[] tmp;
+// }
+
+
 template <typename Dtype>
 void SGDSolver<Dtype>::ClearHistory() {
-    cout << "ClearHistory start timing" << endl; 
-    clock_t t1 = clock();
-    
     const vector<shared_ptr<Layer<Dtype> > >& layers = this->net_->layers();
     int param_id = 0;
     for (int i = 0; i < layers.size(); ++i) {
-    /// As long as layer i has masks, its history_ should be cleared. 
-    /// But only clear history_ of weights, since we only have masks for weights.
-    /// So the key is to relate layer i with corresponding param_id.
+        // As long as layer i has masks, its history_ should be cleared. 
+        // But only clear history_ of weights, since we only have masks for weights.
+        // So the key is to relate layer i with corresponding param_id.
         const string layer_name = layers[i]->layer_param().name();
         if (APP::layer_index.count(layer_name)) {
             const int L = APP::layer_index[layer_name];
             const int count = APP::masks[L].size();
             while (history_[param_id]->count() != count) { 
-                ++ param_id; /// jump over biases
+                ++ param_id; // jump over biases. Note this may be at risk!! Equal count doesn't mean the same thing.
             }
-	    /*
-            Dtype* tmp = new Dtype[count]; /// TODEBUG: Why cannot use bool?
-            for (int k = 0; k < count; ++k) {
-                tmp[k] = APP::masks[L][k];
+            for (int i = 0; i < count; ++i) {
+                if (!APP::masks[L][i]) {
+                    history_[param_id]->mutable_cpu_data()[i] = 0;
+                }
             }
-            caffe_mul(count, 
-                      (const Dtype*) tmp, 
-                      history_[param_id]->cpu_data(), 
-                      history_[param_id]->mutable_cpu_data());
-            delete[] tmp;
             ++ param_id;
-	    */
         }
     }
-    cout << "ClearHistory: " << (double)(clock() - t1) / CLOCKS_PER_SEC << endl;
 }
 
 

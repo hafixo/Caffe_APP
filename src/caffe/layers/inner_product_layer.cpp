@@ -102,15 +102,12 @@ Index   DiffBeforeMasked   Mask   Prob - conv1
     cout.width(4);  cout << "Mask" << "   ";
     
     // print additional info
-    char* mthd = new char[strlen(APP::prune_coremthd.c_str()) + 1];
-    strcpy(mthd, APP::prune_coremthd.c_str());
-    const string mthd_ = strtok(mthd, "-");
     string info = "Unknown";
     vector<float> info_data; 
-    if (mthd_ == "Reg") {
+    if (APP::prune_coremthd.substr(0,3) == "Reg") {
         info = "HistoryReg";
         info_data = APP::history_reg[L];
-    } else if (mthd_ == "PP") {
+    } else if (APP::prune_coremthd.substr(0,2) == "PP") {
         info = "HistoryProb";
         info_data = APP::history_prob[L];
     }
@@ -137,13 +134,11 @@ Index   DiffBeforeMasked   Mask   Prob - conv1
         
     } else if (APP::prune_unit == "Col") {
         const int show_num = APP::show_num_weight > num_col ? num_col : APP::show_num_weight;
-        cout << show_num << endl;
         for (int j = 0; j < show_num; ++j) {
             // print Index
             cout.width(3); cout << "c"; 
             cout.width(2); cout << j+1 << "   ";
             
-            cout << "22" << endl;
             // print blob
             Dtype sum_w = 0, sum_d = 0;
             for (int i = 0; i < num_row; ++i) {
@@ -152,10 +147,8 @@ Index   DiffBeforeMasked   Mask   Prob - conv1
             }
             sum_w /= num_row; /// average abs weight
             sum_d /= num_row; /// average abs diff
-            const Dtype reg_force = APP::history_reg[L][j] * sum_w;
-            char s[50]; sprintf(s, "%7.5f(%7.5f)", sum_d, reg_force);
-            if (mode == 'f') { sprintf(s, "%f", sum_w); }
-            cout.width(blob.size()); cout << s << "   ";
+            Dtype ss = (mode == 'f') ? sum_w : sum_d;
+            cout.width(blob.size()); cout << ss << "   ";
             
             // print Mask
             cout.width(4);  cout << APP::masks[L][j] << "   ";

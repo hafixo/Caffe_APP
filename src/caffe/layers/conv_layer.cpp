@@ -102,7 +102,7 @@ void ConvolutionLayer<Dtype>::IF_alpf() {
     /** IF_all_layer_prune_finished
     */
     APP::IF_alpf = true;
-    for (int i = 0; i < APP::conv_layer_cnt + APP::fc_layer_cnt; ++i) {
+    for (int i = 0; i < APP::layer_cnt; ++i) {
         if (APP::iter_prune_finished[i] == INT_MAX) {
             APP::IF_alpf = false;
             break;
@@ -116,45 +116,94 @@ void ConvolutionLayer<Dtype>::Print(const int& L, char mode) {
     assert(mode == 'f' || mode = 'b'); /// forward, backward
     const int num_col = this->blobs_[0]->count() / this->blobs_[0]->shape()[0];
     const int num_row = this->blobs_[0]->shape()[0];
-    const string mthd = APP::prune_method;
-    const bool IF_prune_row = (mthd == "PPr" || mthd == "FP" || mthd == "TP");
-    Dtype* blob;
-    int length;
-    string content;
-    if (mode == 'f') {
-        blob = this->blobs_[0]->mutable_cpu_data();
-        length = 18;
-        content = "WeightBeforeMasked";
-    } else {
-        blob = this->blobs_[0]->mutable_cpu_diff();
-        length = 16;
-        content = "DiffBeforeMasked";
-    }
+    const Dtype* w = this->blobs_[0]->cpu_data();
+    const Dtype* d = this->blobs_[0]->cpu_diff();
+
+    // print Index, blob, Mask
     cout.width(5);  cout << "Index" << "   ";
-    cout.width(length); cout << content << "   ";
+    const string blob = (mode == 'f') ? "WeightBeforeMasked" : "DiffBeforeMasked";
+    cout.width(blob.size()); cout << blob << "   ";
     cout.width(4);  cout << "Mask" << "   ";
-    cout.width(4);  cout << "Prob - " << this->layer_param_.name() << endl;
-    for (int i = 0; i < SHOW_NUM; ++i) {
-        cout.width(3);  
-        if (IF_prune_row) {
-            cout << "r";
-            cout.width(2);  cout << i+1 << "   ";
-            /// i denotes row
-            cout.width(length); cout << blob[i * num_col] << "   ";
-            cout.width(4);  cout << APP::masks[L][i * num_col] << "   ";
-        } else {
-            cout << "c";
-            cout.width(2);  cout << i+1 << "   ";
-            /// i denotes column
-            Dtype sum = 0;
-            for (int r = 0; r < num_row; ++r) {
-                sum += fabs(blob[r*num_col + i]);
+    
+    // print additional info
+    string info = "Unknown";
+    vector<float> info_data; 
+    if (APP::prune_coremthd.substr(0,3) == "Reg") {
+        info = "HistoryReg";
+        info_data = APP::history_reg[L];
+    } else if (APP::prune_coremthd.substr(0,2) == "PP") {
+        info = "HistoryProb";
+        info_data = APP::history_prob[L];
+    }
+    cout.width(info.size()); cout << info << " - " << this->layer_param_.name() << endl;
+    
+    if (APP::prune_unit == "Row") {
+        const int show_num = SHOW_NUM > num_row ? num_row : SHOW_NUM;
+        for (int i = 0; i < show_num; ++i) {
+            // print Index
+            cout.width(3); cout << "r"; 
+            cout.width(2); cout << i+1 << "   ";
+            
+            // print blob
+            Dtype sum_w = 0, sum_d = 0;
+            for (int j = 0; j < num_col; ++j) {
+                sum_w += fabs(w[i * num_col + j]);
+                sum_d += fabs(d[i * num_col + j]);
             }
-            sum /= num_row;
-            cout.width(length); cout << sum << "   "; // blob[i]
-            cout.width(4);  cout << APP::masks[L][i] << "   ";
+            sum_w /= num_col; /// average abs weight
+            sum_d /= num_col; /// average abs diff
+            char s[20]; sprintf(s, "%7.5f", sum_d);
+            if (mode == 'f') { sprintf(s, "%f", sum_w); }
+            cout.width(blob.size()); cout << s << "   ";
+                        
+            // print Mask
+            cout.width(4);  cout << APP::masks[L][i * num_col] << "   ";
+            
+            // print info
+            cout.width(info.size());  cout << info_data[i] << endl;
         }
-        cout.width(4);  cout << APP::history_prob[L][i] << endl;
+        
+    } else if (APP::prune_unit == "Col") {
+        const int show_num = SHOW_NUM > num_col ? num_col : SHOW_NUM;
+        for (int j = 0; j < show_num; ++j) {
+            // print Index
+            cout.width(3); cout << "c"; 
+            cout.width(2); cout << j+1 << "   ";
+            
+            // print blob
+            Dtype sum_w = 0, sum_d = 0;
+            for (int i = 0; i < num_row; ++i) {
+                sum_w += fabs(w[i * num_col + j]);
+                sum_d += fabs(d[i * num_col + j]);
+            }
+            sum_w /= num_row; /// average abs weight
+            sum_d /= num_row; /// average abs diff
+            Dtype ss = (mode == 'f') ? sum_w : sum_d;
+            cout.width(blob.size()); cout << ss << "   ";
+            
+            // print Mask
+            cout.width(4);  cout << APP::masks[L][j] << "   ";
+            
+            // print info
+            cout.width(info.size());  cout << info_data[j] << endl;
+        }
+    } else if (APP::prune_unit == "Weight") {
+        for (int i = 0; i < SHOW_NUM; ++i) {
+            // print Index
+            cout.width(3); cout << "w";
+            cout.width(2); cout << i+1 << "   ";
+            
+            // print blob
+            char s[20]; sprintf(s, "%7.5f", fabs(d[i]));
+            if (mode == 'f') { sprintf(s, "%f", fabs(w[i])); }
+            cout.width(blob.size()); cout << s << "   ";
+            
+            // print Mask
+            cout.width(4);  cout << APP::masks[L][i] << "   ";
+            
+            // print info
+            cout.width(info.size());  cout << info_data[i] << endl;
+        }
     }
 }
 

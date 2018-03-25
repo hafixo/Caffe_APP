@@ -310,7 +310,7 @@ void Solver<Dtype>::Step(int iters) {
     /// ----------------------------------------------------------------------
     
     // Speed check
-    cout << "solver start timing" << endl;
+    cout << "--- Solver start timing" << endl;
     clock_t t1 = clock();
     
     APP::inner_iter = 0;
@@ -319,7 +319,7 @@ void Solver<Dtype>::Step(int iters) {
       ++ APP::inner_iter; /// WANGHUAN
     }
 
-    cout << "in solver, after forward backward: " << (double)(clock() - t1) / CLOCKS_PER_SEC << endl;
+    cout << "--- after ForwardBackward: " << (double)(clock() - t1) / CLOCKS_PER_SEC << endl;
     
     loss /= param_.iter_size();
     // average the loss across iterations for smoothed reporting
@@ -366,11 +366,10 @@ void Solver<Dtype>::Step(int iters) {
     for (int i = 0; i < callbacks_.size(); ++i) {
       callbacks_[i]->on_gradients_ready();
     }
-    cout << "in solver, after call_backs gradient: " << (double)(clock() - t1) / CLOCKS_PER_SEC << endl;
     
     ApplyUpdate(); /// Virtual Function
 
-    cout << "in solver, after update: " << (double)(clock() - t1) / CLOCKS_PER_SEC << endl;
+    cout << "--- after ApplyUpdate: " << (double)(clock() - t1) / CLOCKS_PER_SEC << endl;
     
     // Increment the internal iter_ counter -- its value should always indicate
     // the number of times the weights have been updated.

@@ -23,8 +23,10 @@ void InnerProductLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
     const string coremthd_ = strtok(coremthd, "-");
     const int L = APP::layer_index[layer_name];
     
+    #ifdef ShowTimingLog
     cout << layer_name << " forward start timing" << endl;
     clock_t t1 = clock();
+    #endif
     
     /// IF_prune
     const bool IF_want_prune  = mthd != "None" && APP::prune_ratio[L] > 0; // if you want to prune, you must specify a meaningful prune_method and give a positive prune_ratio
@@ -91,7 +93,9 @@ void InnerProductLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
         if (IF_prune && APP::iter_prune_finished[L] == INT_MAX) {
             if (coremthd_ == "Reg") {
                 if (APP::step_ % 100 == 0) {  PruneMinimals(); }
+                #ifdef ShowTimingLog
                 cout << "  after PruneMinimals: " << (double)(clock() - t1) / CLOCKS_PER_SEC << endl;
+                #endif
             } else if (coremthd_ == "PP" && APP::prune_unit == "Weight") {
                 ProbPruneWeight(APP::prune_interval);
             }
@@ -102,7 +106,7 @@ void InnerProductLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
         }
         
         // Summary print
-        if (mthd != "None" && L < APP::show_num_layer) {
+        if (mthd != "None" && L < APP::show_num_layer && IF_prune) {
                cout << layer_name << "  IF_prune: " << IF_prune 
                  << "  pruned_ratio: " << APP::pruned_ratio[L] 
                  << "  prune_ratio: " << APP::prune_ratio[L] << endl;
@@ -122,7 +126,9 @@ void InnerProductLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
             this->IF_restore = true;
         }
     }
+    #ifdef ShowTimingLog
     cout << "  before GEMM: " << (double)(clock() - t1) / CLOCKS_PER_SEC << endl;
+    #endif
   // ------------------------------------------------
   
   const Dtype* bottom_data = bottom[0]->gpu_data();
@@ -144,7 +150,9 @@ void InnerProductLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
                             bias_multiplier_.gpu_data(),
                             this->blobs_[1]->gpu_data(), (Dtype)1., top_data);
   }
+  #ifdef ShowTimingLog
   cout << "  after GEMM, end of foward: " << (double)(clock() - t1) / CLOCKS_PER_SEC << endl;
+  #endif
 }
 
 template <typename Dtype>

@@ -2,9 +2,6 @@
 #include "caffe/layers/conv_layer.hpp"
 #include "caffe/adaptive_probabilistic_pruning.hpp"
 #include <ctime>
-#define SHOW_INTERVAL 10
-#define SHOW_NUM_LAYER 5
-#define LAYER_PRINTED 0
 
 using namespace std;
 namespace caffe {
@@ -22,9 +19,11 @@ void ConvolutionLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
     const string mthd = APP::prune_method;
     const int L = APP::layer_index[layer_name];
     this->IF_restore = false;
-   
+    
+    #ifdef ShowTimingLog
     cout << layer_name << " forward start timing" << endl;
     clock_t t1 = clock();
+    #endif
 
     /// IF_prune
     const bool IF_want_prune  = mthd != "None" && APP::prune_ratio[L] > 0; // if you want to prune, you must specify a meaningful prune_method and give a positive prune_ratio
@@ -83,7 +82,7 @@ void ConvolutionLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
         
         // Print and check, before update probs
         // put this outside, to print even when we do not prune
-        if (L == LAYER_PRINTED && APP::step_ % SHOW_INTERVAL == 0) {
+        if (L == APP::show_layer && APP::step_ % APP::show_interval == 0) {
             Print(L, 'f');
         }
 
@@ -132,7 +131,7 @@ void ConvolutionLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
         }
     }
         // Summary print 
-        if (mthd != "None" && L < SHOW_NUM_LAYER) {
+        if (mthd != "None" && L < APP::show_num_layer && IF_prune) {
             cout << layer_name << "  IF_prune: " << IF_prune 
                  << "  pruned_ratio: " << APP::pruned_ratio[L];
             cout << "  pruned_ratio_row: " << APP::num_pruned_row[L] * 1.0 / num_row << "(" << APP::num_pruned_row[L] << ")"
@@ -152,7 +151,12 @@ void ConvolutionLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
         }
         this->IF_restore = true;
     }
+    
+    #ifdef ShowTimingLog
     cout << " after prune, before GEMM: " << (double)(clock() - t1) / CLOCKS_PER_SEC << endl;
+    #endif
+
+    
   /// ------------------------------------------------------
   
     const Dtype* weight = this->blobs_[0]->gpu_data();
@@ -168,8 +172,10 @@ void ConvolutionLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
             }
         }
     }
-
+    
+    #ifdef ShowTimingLog
     cout << "  after GEMM: " << (double)(clock() - t1) / CLOCKS_PER_SEC << endl;
+    #endif
 
     /// this->bottom_dim_: bottom feature map size, input
     /// this->top_dim_: top feature map size, output
@@ -280,11 +286,13 @@ void ConvolutionLayer<Dtype>::Backward_gpu(const vector<Blob<Dtype>*>& top,
     const int num_col = count / num_row;
     const int L = APP::layer_index[this->layer_param_.name()];
     
+    #ifdef ShowTimingLog
     cout << this->layer_param_.name() << " backward start timing" << endl;
     clock_t t1 = clock();
-
+    #endif
+    
     /// Print and check
-    if (L == LAYER_PRINTED && APP::step_ % SHOW_INTERVAL == 0 && APP::inner_iter == 0) {
+    if (L == APP::show_layer && APP::step_ % APP::show_interval == 0 && APP::inner_iter == 0) {
         Print(L, 'b');
     }
     
@@ -312,7 +320,9 @@ void ConvolutionLayer<Dtype>::Backward_gpu(const vector<Blob<Dtype>*>& top,
             muweight_diff[j] *= APP::masks[L][j]; 
         }
     }
+    #ifdef ShowTimingLog
     cout << "  after update diff: " << (double)(clock() - t1) / CLOCKS_PER_SEC << endl;
+    #endif
 /// ------------------------------------------------------------- 
   
   

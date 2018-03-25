@@ -81,7 +81,7 @@ namespace caffe {
     vector<vector<int> > APP::log_index;
     string APP::snapshot_prefix;
     string APP::prune_state_dir = "/PruneStateSnapshot/";
-    int APP::show_layer = 6; 
+    int APP::show_layer = 1; 
     int APP::show_num_layer = 20;
     int APP::show_num_weight = 20; 
     int APP::show_interval = 10;

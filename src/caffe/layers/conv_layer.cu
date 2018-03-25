@@ -152,7 +152,7 @@ void ConvolutionLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
         }
         this->IF_restore = true;
     }
-    cout << "in CONV gpu, before GEMM: " << (double)(clock() - t1) / CLOCKS_PER_SEC << endl;
+    cout << " after prune, before GEMM: " << (double)(clock() - t1) / CLOCKS_PER_SEC << endl;
   /// ------------------------------------------------------
   
     const Dtype* weight = this->blobs_[0]->gpu_data();
@@ -169,7 +169,7 @@ void ConvolutionLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
         }
     }
 
-    cout << "in CONV gpu, after GEMM: " << (double)(clock() - t1) / CLOCKS_PER_SEC << endl;
+    cout << "  after GEMM: " << (double)(clock() - t1) / CLOCKS_PER_SEC << endl;
 
     /// this->bottom_dim_: bottom feature map size, input
     /// this->top_dim_: top feature map size, output
@@ -312,7 +312,7 @@ void ConvolutionLayer<Dtype>::Backward_gpu(const vector<Blob<Dtype>*>& top,
             muweight_diff[j] *= APP::masks[L][j]; 
         }
     }
-    cout << "in CONV gpu, after adjusting diff: " << (double)(clock() - t1) / CLOCKS_PER_SEC << endl;
+    cout << "  after update diff: " << (double)(clock() - t1) / CLOCKS_PER_SEC << endl;
 /// ------------------------------------------------------------- 
   
   

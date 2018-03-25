@@ -22,16 +22,17 @@ void ConvolutionLayer<Dtype>::PruneSetUp(const PruneParameter& prune_param) {
     const string layer_name = this->layer_param_.name();
     if (this->phase_ == TRAIN) {
         if (APP::layer_index.count(layer_name) == 0) {
-            APP::layer_index[layer_name] = APP::conv_layer_cnt + APP::fc_layer_cnt;
+            APP::layer_index[layer_name] = APP::layer_cnt;
             ++ APP::conv_layer_cnt;
+            ++ APP::layer_cnt; 
             cout << "a new layer registered: " << layer_name 
-                 << "  total layers: " << APP::conv_layer_cnt + APP::fc_layer_cnt << endl;
+                 << "  total layers: " << APP::layer_cnt << endl;
         }
     } else { return; }
     const int L = APP::layer_index[layer_name];
     cout << "prune setup: " << layer_name  
          << "  its layer_index: " << L
-         << "  total layers: " << APP::conv_layer_cnt + APP::fc_layer_cnt << endl;
+         << "  total layers: " << APP::layer_cnt << endl;
     
     
     // Note: the varibales below can ONLY be used in training.
@@ -76,7 +77,6 @@ void ConvolutionLayer<Dtype>::PruneSetUp(const PruneParameter& prune_param) {
     APP::group.push_back(this->group_);
     APP::priority.push_back(prune_param.priority());
     APP::iter_prune_finished.push_back(INT_MAX);
-    cout << layer_name << " " << APP::iter_prune_finished[L] << endl;
     cout << "=== Masks etc. Initialized" << endl;
 }
 
@@ -102,7 +102,7 @@ void ConvolutionLayer<Dtype>::IF_alpf() {
     /** IF_all_layer_prune_finished
     */
     APP::IF_alpf = true;
-    for (int i = 0; i < APP::layer_cnt; ++i) {
+    for (int i = 0; i < APP::conv_layer_cnt + APP::fc_layer_cnt; ++i) {
         if (APP::iter_prune_finished[i] == INT_MAX) {
             APP::IF_alpf = false;
             break;

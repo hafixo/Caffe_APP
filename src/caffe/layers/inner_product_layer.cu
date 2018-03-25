@@ -144,7 +144,7 @@ void InnerProductLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
                             bias_multiplier_.gpu_data(),
                             this->blobs_[1]->gpu_data(), (Dtype)1., top_data);
   }
-  cout << "  after GEMM, and this is end of foward: " << (double)(clock() - t1) / CLOCKS_PER_SEC << endl;
+  cout << "  after GEMM, end of foward: " << (double)(clock() - t1) / CLOCKS_PER_SEC << endl;
 }
 
 template <typename Dtype>
@@ -171,7 +171,7 @@ void InnerProductLayer<Dtype>::Backward_gpu(const vector<Blob<Dtype>*>& top,
     const int L = APP::layer_index[this->layer_param_.name()];
     if (APP::prune_method != "None" && APP::pruned_ratio[L] > 0) {
         // Print
-        if (L == APP::show_layer && APP::step_ % APP::show_interval == 0 && APP::inner_iter == 0) {
+        if (L == APP::show_layer + APP::conv_layer_cnt && APP::step_ % APP::show_interval == 0 && APP::inner_iter == 0) {
             Print(L, 'b');
         }
         

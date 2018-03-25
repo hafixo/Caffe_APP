@@ -18,17 +18,18 @@ void InnerProductLayer<Dtype>::PruneSetUp(const PruneParameter& prune_param) {
     const string layer_name = this->layer_param_.name();
     if (this->phase_ == TRAIN) {
         if (APP::layer_index.count(layer_name) == 0) {
-            APP::layer_index[layer_name] = APP::conv_layer_cnt + APP::fc_layer_cnt;
+            APP::layer_index[layer_name] = APP::layer_cnt;
             ++ APP::fc_layer_cnt;
+            ++ APP::layer_cnt;
             cout << "a new layer registered: " << layer_name 
-                 << "  total layers: " << APP::conv_layer_cnt + APP::fc_layer_cnt << endl;
+                 << "  total layers: " << APP::layer_cnt << endl;
         }
     } else { return; }
     const int L = APP::layer_index[layer_name];
     const string mthd = APP::prune_method;
     cout << "prune setup: " << layer_name  
          << "  its layer_index: " << L
-         << "  total layers: " << APP::conv_layer_cnt + APP::fc_layer_cnt << endl;
+         << "  total layers: " << APP::layer_cnt << endl;
 
     // Note: the varibales below can ONLY be used in training.
     // Note: These varibales will be called for every GPU, whereas since we use `layer_index` to index, so it doesn't matter.

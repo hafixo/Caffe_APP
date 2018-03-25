@@ -22,45 +22,53 @@ void ConvolutionLayer<Dtype>::PruneSetUp(const PruneParameter& prune_param) {
     const string layer_name = this->layer_param_.name();
     if (this->phase_ == TRAIN) {
         if (APP::layer_index.count(layer_name) == 0) {
-            APP::layer_index[layer_name] = APP::layer_cnt;
-            ++ APP::layer_cnt;
-            cout << "A new layer registered: " << layer_name 
-                 << "  Total #layer: " << APP::layer_cnt << endl;
+            APP::layer_index[layer_name] = APP::conv_layer_cnt + APP::fc_layer_cnt;
+            ++ APP::conv_layer_cnt;
+            cout << "a new layer registered: " << layer_name 
+                 << "  total layers: " << APP::conv_layer_cnt + APP::fc_layer_cnt << endl;
         }
     } else { return; }
     const int L = APP::layer_index[layer_name];
-    const string mthd = APP::prune_method;
-    cout << "PruneSetUp: " << layer_name  
+    cout << "prune setup: " << layer_name  
          << "  its layer_index: " << L
-         << "  Total #layer: " << APP::layer_cnt << endl;
+         << "  total layers: " << APP::conv_layer_cnt + APP::fc_layer_cnt << endl;
     
     
     // Note: the varibales below can ONLY be used in training.
     // Note: These varibales will be called for every GPU, whereas since we use `layer_index` to index, so it doesn't matter.
     // Set up prune parameters of layer
     APP::prune_ratio.push_back(prune_param.prune_ratio());
-    APP::delta.push_back(prune_param.delta());
+    APP::IF_update_row_col_layer.push_back(prune_param.if_update_row_col());
     APP::pruned_ratio.push_back(0);
     APP::pruned_ratio_col.push_back(0);
     APP::pruned_ratio_row.push_back(0);
+    APP::GFLOPs.push_back(count);
     APP::GFLOPs.push_back(this->blobs_[0]->shape()[0] * this->blobs_[0]->shape()[1] 
                         * this->blobs_[0]->shape()[2] * this->blobs_[0]->shape()[3]); /// further calculated in `net.cpp`, after layer SetUp
+    APP::num_param.push_back(count);
     
     // Info shared among different layers
     // Pruning state
     APP::masks.push_back( vector<bool>(count, 1) );
+    APP::num_pruned_weight.push_back(0);
     APP::num_pruned_col.push_back(0);
     APP::num_pruned_row.push_back(0);
-    APP::reg_to_distribute.push_back(ceil(prune_param.prune_ratio() * num_col) * APP::target_reg);
+    APP::IF_weight_pruned.push_back( vector<bool>(count, false) );
     APP::IF_row_pruned.push_back( vector<bool>(num_row, false) );
     vector<bool> vec_tmp(this->group_, false); /// initialization
     APP::IF_col_pruned.push_back( vector<vector<bool> >(num_col, vec_tmp) );
-    
-    const int num_ = (mthd == "PPr") ? num_row : num_col;
+
+    int num_ = num_col;
+    if (APP::prune_unit == "Weight") {
+        num_ = count;
+    } else if (APP::prune_unit == "Row") {
+        num_ = num_row;
+    }
     APP::history_prob.push_back(  vector<float>(num_, 1) );
     APP::history_score.push_back( vector<float>(num_, 0) );
     APP::history_reg.push_back(   vector<float>(num_, 0) );
     APP::history_rank.push_back(  vector<float>(num_, 0) );
+    APP::hhistory_rank.push_back( vector<float>(num_, 0) );
     
     
     // Info shared among layers
@@ -68,21 +76,7 @@ void ConvolutionLayer<Dtype>::PruneSetUp(const PruneParameter& prune_param) {
     APP::group.push_back(this->group_);
     APP::priority.push_back(prune_param.priority());
     APP::iter_prune_finished.push_back(INT_MAX);
-
-    
-    // Logging
-    if (APP::num_log) {
-        const int num_log = APP::num_log;
-        Dtype rands[num_log];
-        caffe_rng_uniform(num_log, (Dtype)0, (Dtype)(num_col - 1), rands);
-        APP::log_index.push_back( vector<int>(num_log) );
-        for (int i = 0; i < num_log; ++i) {
-            APP::log_index[L][i] = int(rands[i]);
-        }
-        APP::log_weight.push_back( vector<vector<float> >(num_log) );
-        APP::log_diff.push_back( vector<vector<float> >(num_log) );
-    }
-
+    cout << layer_name << " " << APP::iter_prune_finished[L] << endl;
     cout << "=== Masks etc. Initialized" << endl;
 }
 
@@ -233,9 +227,7 @@ void ConvolutionLayer<Dtype>::TaylorPrune(const vector<Blob<Dtype>*>& top) {
             
             }
         }
-
     }
-    
 }
 
 
@@ -273,9 +265,6 @@ void ConvolutionLayer<Dtype>::FilterPrune() {
             APP::pruned_rows.push_back(r);
         }  
     }
-    
-
-    
     
 } 
 
@@ -470,10 +459,8 @@ void ConvolutionLayer<Dtype>::ProbPruneCol(const int& prune_interval) {
     }
 }
 
-
-
 template <typename Dtype> 
-void ConvolutionLayer<Dtype>::ProbPruneRow() {}
+void ConvolutionLayer<Dtype>::ProbPruneRow(const int& prune_interval) {}
 
 template <typename Dtype> 
 void ConvolutionLayer<Dtype>::CleanWorkForPP() {
@@ -630,7 +617,7 @@ void ConvolutionLayer<Dtype>::ComputeBlobMask() {
     const Dtype pruned_r = (mthd == "PPr" || mthd == "FP" || mthd == "TP") 
                                         ? APP::pruned_ratio_row[L] : APP::pruned_ratio_col[L];
     if (pruned_r >= APP::prune_ratio[L]) {
-        APP::iter_prune_finished[L] = -1; /// To check multi-GPU
+        //APP::iter_prune_finished[L] = -1; /// To check multi-GPU
         cout << layer_name << "prune finshed" << endl;
     } else { 
         if (APP::prune_method.substr(0, 2) == "PP") {
@@ -644,7 +631,7 @@ void ConvolutionLayer<Dtype>::ComputeBlobMask() {
 }
 
 template <typename Dtype>
-void ConvolutionLayer<Dtype>::PruneMinimals(const Dtype& threshold) {
+void ConvolutionLayer<Dtype>::PruneMinimals() {
     Dtype* muweight   = this->blobs_[0]->mutable_cpu_data();
     const int count   = this->blobs_[0]->count();
     const int num_row = this->blobs_[0]->shape()[0];

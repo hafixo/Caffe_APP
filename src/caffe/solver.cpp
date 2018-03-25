@@ -10,6 +10,9 @@
 #include "caffe/util/upgrade_proto.hpp"
 #include "caffe/adaptive_probabilistic_pruning.hpp"
 #include <ctime>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 
 namespace caffe {
 
@@ -56,7 +59,13 @@ void Solver<Dtype>::Init(const SolverParameter& param) {
   // ------------------------------------------
   // WANGHUAN, copy prune params
   APP::prune_method = param_.prune_method();
-  APP::criteria = param_.criteria();
+  if (APP::prune_method != "None") {
+      char* mthd = new char[strlen(APP::prune_method.c_str()) + 1];
+      strcpy(mthd, APP::prune_method.c_str());
+      APP::prune_coremthd = strtok(mthd, "_"); // mthd is like "Reg_Col", the first split is `Reg`
+      APP::prune_unit = strtok(NULL, "_"); // TODO: put this in APP's member function
+  }
+  APP::criteria = "L1-norm";
   APP::num_once_prune = param_.num_once_prune();
   APP::prune_interval = param_.prune_interval();
   APP::rgamma = 30;   //param_.rgamma();
@@ -66,15 +75,15 @@ void Solver<Dtype>::Init(const SolverParameter& param) {
   APP::prune_begin_iter = param_.prune_begin_iter();
   APP::iter_size = param_.iter_size();
   APP::AA = param_.aa();
-  APP::target_reg = param_.target_reg(); //param_.aa();
-  APP::kk = 0.25; //param_.kk(); 
+  APP::target_reg = param_.target_reg();
+  APP::kk  = 0.25; //param_.kk(); 
   APP::speedup = param_.speedup();
-  APP::IF_update_row_col = param.if_update_row_col();
+  APP::compRatio = param_.compratio();
+  APP::IF_update_row_col   = param.if_update_row_col();
+  APP::IF_speedup_count_fc = param.if_speedup_count_fc();
+  APP::IF_compr_count_conv = param.if_compr_count_conv();
   APP::IF_eswpf = param_.if_eswpf(); /// if early stop when prune finished
-  APP::prune_threshold = param_.prune_threshold();
-  APP::num_iter_reg = 10000; // param_.num_iter_reg();
-  
-  // APP::score_decay = param_.score_decay();
+  APP::prune_threshold = param_.prune_threshold();  
   APP::snapshot_prefix = param_.snapshot_prefix();
   // ------------------------------------------
 
@@ -258,7 +267,7 @@ void Solver<Dtype>::Step(int iters) {
     /// ----------------------------------------------------------------------
     // Before another forward, judge whether prune could be stopped
     if (APP::IF_alpf && APP::IF_eswpf) {
-        cout << "all layer prune finished: " << iter_ << " -- early stopped." << endl;
+        cout << "all layer prune finished: iter = " << iter_ << " -- early stopped." << endl;
         requested_early_exit_ = true;
         break;
     }
@@ -266,16 +275,43 @@ void Solver<Dtype>::Step(int iters) {
     // GFLOPs, since it measures the speedup of the whole net, so put it here rather than in layer.
     Dtype GFLOPs_left   = 0;
     Dtype GFLOPs_origin = 0;
-    for (int i = 0; i < APP::layer_cnt; ++i) {
-        GFLOPs_left   += APP::GFLOPs[i] * (1 - APP::pruned_ratio[i]);
+    const int num_layer_count = APP::IF_speedup_count_fc ? APP::conv_layer_cnt + APP::fc_layer_cnt : APP::conv_layer_cnt;
+    for (int i = 0; i < num_layer_count; ++i) {
+        const Dtype pr = APP::pruned_ratio_row[i];
+        const Dtype pc = APP::pruned_ratio_col[i];
+        GFLOPs_left   += APP::GFLOPs[i] * (1 - (pr + pc - pr * pc));
         GFLOPs_origin += APP::GFLOPs[i];
     }
-    APP::IF_speedup_achieved = (GFLOPs_origin / GFLOPs_left >= APP::speedup);
+    if (APP::prune_unit == "Col" || APP::prune_unit == "Row") {
+        APP::IF_speedup_achieved = GFLOPs_origin/GFLOPs_left >= APP::speedup;
+    }
+    
+    
+    Dtype num_param_left   = 0;
+    Dtype num_param_origin = 0;
+    const int num_layer_begin = APP::IF_compr_count_conv ? 0 : APP::conv_layer_cnt;
+    for (int i = num_layer_begin; i < APP::conv_layer_cnt + APP::fc_layer_cnt; ++i) {
+        num_param_left   += APP::num_param[i] * (1 - APP::pruned_ratio[i]);
+        num_param_origin += APP::num_param[i];
+    }
+    if (APP::prune_unit == "Weight") {
+        APP::IF_compRatio_achieved = num_param_origin/num_param_left >= APP::compRatio;
+    }
     
     APP::step_ = iter_ + 1;
-    cout << "\n**** Step " << APP::step_ << ": " << GFLOPs_origin / GFLOPs_left << "/" << APP::speedup << " ****" << endl;
-    cout << "Total GFLOPs_origin: " << GFLOPs_origin << endl;
+    cout << "\n**** Step " << APP::step_ << ": " 
+         << GFLOPs_origin / GFLOPs_left << "/" << APP::speedup << " "
+         << num_param_origin / num_param_left << "/" << APP::compRatio
+         << " ****" << endl;
+    cout << "fc counted: " << APP::IF_speedup_count_fc
+         << "  Total GFLOPs_origin: " << GFLOPs_origin
+         << " | conv counted: " << APP::IF_compr_count_conv
+         << "  Total num_param_origin: " << num_param_origin << endl;
     /// ----------------------------------------------------------------------
+    
+    // Speed check
+    cout << "solver start timing" << endl;
+    clock_t t1 = clock();
     
     APP::inner_iter = 0;
     for (int i = 0; i < param_.iter_size(); ++i) {
@@ -283,22 +319,28 @@ void Solver<Dtype>::Step(int iters) {
       ++ APP::inner_iter; /// WANGHUAN
     }
 
+    cout << "in solver, after forward backward: " << (double)(clock() - t1) / CLOCKS_PER_SEC << endl;
+    
     loss /= param_.iter_size();
     // average the loss across iterations for smoothed reporting
-    UpdateSmoothedLoss(loss, start_iter, average_loss); 
-    
-    /// ----------------------------------------------------------------------
-    /// WANGHUAN, used for Adaptive SPP
-    /// APP::Delta_loss_history =  APP::Delta_loss_history * APP::loss_decay + (smoothed_loss_ - APP::loss);
-    /// APP::Delta_loss_history =  smoothed_loss_ - APP::loss;
-    APP::learning_speed = APP::loss - smoothed_loss_;
-    APP::loss = smoothed_loss_;
-    cout << "learning_speed: " << APP::learning_speed << endl;
-    /// ----------------------------------------------------------------------
+    UpdateSmoothedLoss(loss, start_iter, average_loss);
 
     if (display) {
+      // -------------------------------
+      // calculate training speed
+      const time_t current_time = time(NULL);
+      if (APP::last_time == 0) {
+          APP::first_time = current_time;
+          APP::first_iter = iter_;
+      }
+      char train_speed[50];
+      sprintf(train_speed, "%.3f(%.3f)s/iter", (current_time - APP::last_time ) * 1.0 / param_.display(),
+                                               (current_time - APP::first_time) * 1.0 / (iter_ - APP::first_iter));
+      APP::last_time = current_time;
+      // -------------------------------
+      
       LOG_IF(INFO, Caffe::root_solver()) << "Iteration " << iter_
-          << ", smoothed loss = " << smoothed_loss_; 
+          << ", smoothed loss = " << smoothed_loss_ << ", speed = " << train_speed; 
       const vector<Blob<Dtype>*>& result = net_->output_blobs();
       int score_index = 0;
       for (int j = 0; j < result.size(); ++j) {
@@ -324,9 +366,12 @@ void Solver<Dtype>::Step(int iters) {
     for (int i = 0; i < callbacks_.size(); ++i) {
       callbacks_[i]->on_gradients_ready();
     }
+    cout << "in solver, after call_backs gradient: " << (double)(clock() - t1) / CLOCKS_PER_SEC << endl;
     
     ApplyUpdate(); /// Virtual Function
 
+    cout << "in solver, after update: " << (double)(clock() - t1) / CLOCKS_PER_SEC << endl;
+    
     // Increment the internal iter_ counter -- its value should always indicate
     // the number of times the weights have been updated.
     ++iter_;    
@@ -365,19 +410,32 @@ void Solver<Dtype>::Solve(const char* resume_file) {
   }
   
 
-  // After restore, calculate GFLOPs and determine whether the prune finished
-  Dtype GFLOPs_left   = 0;
-  Dtype GFLOPs_origin = 0;
-  for (int i = 0; i < APP::layer_cnt; ++i) {
-      GFLOPs_left   += APP::GFLOPs[i] * (1 - APP::pruned_ratio[i]);
-      GFLOPs_origin += APP::GFLOPs[i];
-  }
-  APP::IF_speedup_achieved = (GFLOPs_origin / GFLOPs_left >= APP::speedup);
-  if (APP::IF_speedup_achieved) {
-    for (int i = 0; i < APP::layer_index.size(); ++i) {
-        APP::iter_prune_finished[i] = -1; 
+    // After restore, calculate GFLOPs and determine whether the prune finished
+    // WANGHUAN TODO 
+    Dtype GFLOPs_left   = 0;
+    Dtype GFLOPs_origin = 0;
+    for (int i = 0; i < APP::conv_layer_cnt + APP::fc_layer_cnt; ++i) {
+        const Dtype pr = APP::pruned_ratio_row[i];
+        const Dtype pc = APP::pruned_ratio_col[i];
+        GFLOPs_left   += APP::GFLOPs[i] * (1 - (pr + pc - pr * pc));
+        GFLOPs_origin += APP::GFLOPs[i];
     }
-  }
+    APP::IF_speedup_achieved = GFLOPs_origin/GFLOPs_left >= APP::speedup;
+    
+    Dtype num_param_left   = 0;
+    Dtype num_param_origin = 0;
+    for (int i = 0; i < APP::conv_layer_cnt + APP::fc_layer_cnt; ++i) {
+        num_param_left   += APP::num_param[i] * (1 - APP::pruned_ratio[i]);
+        num_param_origin += APP::num_param[i];
+    }
+    APP::IF_compRatio_achieved = num_param_origin/num_param_left >= APP::compRatio;
+  
+  
+    if (APP::IF_speedup_achieved || APP::IF_compRatio_achieved) {
+        for (int i = 0; i < APP::layer_index.size(); ++i) {
+            APP::iter_prune_finished[i] = -1; 
+        }
+    }
   
 
   // For a network that is trained by the solver, no bottom or top vecs
@@ -392,8 +450,8 @@ void Solver<Dtype>::Solve(const char* resume_file) {
     Snapshot();
   }
   if (requested_early_exit_) {
-    if (APP::num_log) { Logshot(); }
-    if (APP::prune_method.substr(0, 2) == "PP") { PruneStateShot(); }
+    if ((APP::prune_coremthd.substr(0, 2) == "PP" || APP::prune_coremthd.substr(0, 3) == "Reg") && !APP::IF_alpf) { PruneStateShot(); }
+    if (APP::prune_method != "None") { PrintFinalPrunedRatio(); }
     LOG(INFO) << "Optimization stopped early.";
     return;
   }
@@ -415,10 +473,24 @@ void Solver<Dtype>::Solve(const char* resume_file) {
   if (param_.test_interval() && iter_ % param_.test_interval() == 0) {
     TestAll();
   }
-  if (APP::num_log) { Logshot(); }
-  if (APP::prune_method.substr(0, 2) == "PP") { PruneStateShot(); }
+  if (APP::prune_method != "None") { PrintFinalPrunedRatio(); }
   LOG(INFO) << "Optimization Done.";
 }
+
+template <typename Dtype>
+void Solver<Dtype>::PrintFinalPrunedRatio() {
+    cout << "Print final pruned ratio of all layers:" << endl;
+    map<string, int>::iterator it_m;
+    for (it_m = APP::layer_index.begin(); it_m != APP::layer_index.end(); ++it_m) {
+        const int L = it_m->second;
+        cout << it_m->first
+             << "  pruned_ratio=" << APP::pruned_ratio[L]
+             << "  pruned_ratio_row=" << APP::pruned_ratio_row[L]
+             << "  pruned_ratio_col=" << APP::pruned_ratio_col[L] 
+             << "  prune_ratio=" << APP::prune_ratio[L] << endl;
+    }
+}
+
 
 template <typename Dtype>
 void Solver<Dtype>::TestAll() {
@@ -427,7 +499,6 @@ void Solver<Dtype>::TestAll() {
        ++test_net_id) {
     Test(test_net_id);
   }
-  
 }
 
 template <typename Dtype>
@@ -528,27 +599,47 @@ template <typename Dtype>
 void Solver<Dtype>::PruneStateShot() {
     map<string, int>::iterator it_m;
     for (it_m = APP::layer_index.begin(); it_m != APP::layer_index.end(); ++it_m) {
-        const char* outfile = (param_.snapshot_prefix() + "prob_snapshot/prob_" + it_m->first + ".txt").c_str();
-        if (!access(outfile, 0)) { /// outfile has already existed
-            remove(outfile);
-        } 
-        ofstream prob(outfile, ofstream::app);
-        if (!prob.is_open()) {
-            cout << "Error: opening prob file failed: " << prob << endl; 
+        const string prune_state_dir = param_.snapshot_prefix() + APP::prune_state_dir;
+        if (access(prune_state_dir.c_str(), 0)) {
+            LOG(INFO) << "Prune state dir `" << prune_state_dir << "` doesn't exist, now make it." << endl;
+            mkdir(prune_state_dir.c_str(), S_IRWXU);
+        }
+        const string outfile = param_.snapshot_prefix() + APP::prune_state_dir + it_m->first + ".txt";
+        ofstream state_stream(outfile.c_str(), ios::out);
+        if (!state_stream.is_open()) {
+            LOG(INFO) << "Error: cannot open file `" << outfile << "`" << endl;
         } else {
-            prob << iter_ << "\n"; 
-            vector<float> pr = APP::history_prob[it_m->second];
-            vector<float>::iterator it;
-            for (it = pr.begin(); it != pr.end(); ++it) {
-                prob << *it << " ";
+            state_stream << iter_ << "\n";
+            if (APP::prune_coremthd.substr(0,2) == "PP") {
+                vector<float> state_punish = APP::history_prob[it_m->second];
+                typename vector<float>::iterator it;
+                for (it = state_punish.begin(); it != state_punish.end(); ++it) {
+                    state_stream << *it << " ";
+                }
+            } else if (APP::prune_coremthd.substr(0,3) == "Reg") {
+                vector<float> state_score  = APP::history_rank[it_m->second];
+                vector<float> state_punish = APP::history_reg[it_m->second];
+                typename vector<float>::iterator it;
+                assert (state_score.size() == state_punish.size());
+                for (it = state_score.begin(); it != state_score.end(); ++it) {
+                    state_stream << *it << " ";
+                }
+                for (it = state_punish.begin(); it != state_punish.end(); ++it) {
+                    state_stream << *it << " ";
+                }
             }
-        }    
+            state_stream.close();
+            LOG(INFO) << APP::layer_index[it_m->first] << " " << it_m->first << ": save prune state done!";
+        }
     }
-    cout << "Save prune prob done!" << endl;
+    
 }
+
 
 template <typename Dtype>
 void Solver<Dtype>::Logshot() {
+    /* Abolished */
+    /*
     const time_t t = time(NULL);
     struct tm* ctime = localtime(&t);
     ostringstream TIME;
@@ -570,9 +661,9 @@ void Solver<Dtype>::Logshot() {
     ofstream log_w(ww, ofstream::app); 
     ofstream log_d(dd, ofstream::app);
     
-    vector<vector<vector<float> > >::iterator it_l; /// it_layer
-    vector<vector<float> >::iterator it_w; /// it_weight
-    vector<float>::iterator it_i; /// it_iter
+    typename vector<vector<vector<float> > >::iterator it_l; /// it_layer
+    typename vector<vector<float> >::iterator it_w; /// it_weight
+    typename vector<float>::iterator it_i; /// it_iter
     vector<vector<int> >::iterator it_il;
     vector<int>::iterator it_iw;
 
@@ -614,7 +705,7 @@ void Solver<Dtype>::Logshot() {
             log_d << "\n";
         }
     }
-
+    */
 }
 
 

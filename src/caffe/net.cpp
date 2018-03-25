@@ -170,7 +170,7 @@ void Net<Dtype>::Init(const NetParameter& in_param) {
           << "Top shape: " << top_vecs_[layer_id][top_id]->shape_string();
       /// --------------------------------------------------------------------
       /// GFLOPs
-      if (phase_ == TRAIN && APP::layer_index.count(layer_param.name())) {
+      if (phase_ == TRAIN && APP::layer_index.count(layer_param.name()) && layer_param.type() == "Convolution") {
           const int L = APP::layer_index[layer_param.name()];
           APP::GFLOPs[L] *= (top_vecs_[layer_id][top_id]->shape()[2] * top_vecs_[layer_id][top_id]->shape()[3]);                           
           // std::cout << this->blobs_[0]->shape()[0]
@@ -489,6 +489,7 @@ void Net<Dtype>::AppendParam(const NetParameter& param, const int layer_id,
     param_display_names_.push_back(param_display_name.str());
   }
   const int net_param_id = params_.size();
+  // std::cout << "net_param_id: " << net_param_id << endl; // WANGHUAN
   params_.push_back(layers_[layer_id]->blobs()[param_id]);
   param_id_vecs_[layer_id].push_back(net_param_id);
   param_layer_indices_.push_back(make_pair(layer_id, param_id));
@@ -777,21 +778,24 @@ void Net<Dtype>::Reshape() {
 template <typename Dtype>
 void Net<Dtype>::CopyTrainedLayersFrom(const NetParameter& param) {
   int num_source_layers = param.layer_size();
-  // std::cout << "num_source_layers " << num_source_layers << std::endl;
-  // for (int i = 0; i < layer_names_.size(); ++i) {
-      // std::cout << layer_names_[i] << std::endl;
-  // }
+  
+  /*
+  std::cout << "num_source_layers: " << num_source_layers << std::endl;
+  for (int i = 0; i < layer_names_.size(); ++i) {
+      std::cout << layer_names_[i] << std::endl;
+  }
+  // This `layer_names` contains *all* the layers in a CNN, including pool, relu, accuracy, loss etc.
+  */
   
   for (int i = 0; i < num_source_layers; ++i) {
     const LayerParameter& source_layer = param.layer(i);
-    const string& source_layer_name = source_layer.name(); //- old model
+    const string& source_layer_name = source_layer.name();
     int target_layer_id = 0;
     while (target_layer_id != layer_names_.size() &&
         layer_names_[target_layer_id] != source_layer_name) {
       ++target_layer_id;
     }
 
-    // std::cout << "target_layer_id " << target_layer_id << std::endl;
     if (target_layer_id == layer_names_.size()) {
       LOG(INFO) << "Ignoring source layer " << source_layer_name;
       continue;
@@ -802,8 +806,11 @@ void Net<Dtype>::CopyTrainedLayersFrom(const NetParameter& param) {
     CHECK_EQ(target_blobs.size(), source_layer.blobs_size())
         << "Incompatible number of blobs for layer " << source_layer_name;
     
-    // std::cout << "target_blobs.size() " << target_blobs.size() << std::endl;
-    // The layer of <data> has no blob to restore, so its target_blobs.size() = 0.
+    /*
+    std::cout << "Copying weights - " << source_layer_name << std::endl;
+    std::cout << "target_blobs.size() " << target_blobs.size() << std::endl;
+    */
+    
     for (int j = 0; j < target_blobs.size(); ++j) {
       if (!target_blobs[j]->ShapeEquals(source_layer.blobs(j))) {
         Blob<Dtype> source_blob;

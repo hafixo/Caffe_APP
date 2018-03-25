@@ -1,6 +1,5 @@
 #include <string>
 #include <vector>
-
 #include "caffe/sgd_solvers.hpp"
 #include "caffe/util/hdf5.hpp"
 #include "caffe/util/io.hpp"
@@ -15,7 +14,7 @@
 #define NUM_SHOW 20
 
 namespace caffe {
-
+ 
 // Return the current learning rate. The currently implemented learning rate
 // policies are as follows:
 //    - fixed: always return base_lr.
@@ -69,7 +68,7 @@ Dtype SGDSolver<Dtype>::GetLearningRate() {
   }
   return rate;
 }
-
+ 
 template <typename Dtype>
 void SGDSolver<Dtype>::PreSolve() {
   // Initialize the history
@@ -77,7 +76,7 @@ void SGDSolver<Dtype>::PreSolve() {
   history_.clear();
   update_.clear();
   temp_.clear();
-  tmp_.clear(); // @ming, for reg pruning
+  tmp_.clear(); // @ming, for saving reg*weight
   history_reg_.clear(); // @ming
   for (int i = 0; i < net_params.size(); ++i) {
     const vector<int>& shape = net_params[i]->shape();
@@ -383,7 +382,6 @@ void SGDSolver<Dtype>::Regularize(int param_id) {
                 }
             }
             sort(col_score.begin(), col_score.end());
-            
             #ifdef ShowTimingLog
             cout  << "  after 1st sort: " << (double)(clock() - t1)/CLOCKS_PER_SEC << "s" << endl;
             #endif
@@ -495,7 +493,6 @@ void SGDSolver<Dtype>::Regularize(int param_id) {
         
       } else if (regularization_type == "Reg_Weight") {
         // SR used to compress large DNN, not using ranking 
-        
         // add weight decay, weight decay still used
         caffe_gpu_axpy(net_params[param_id]->count(),
                        local_decay,
@@ -504,83 +501,79 @@ void SGDSolver<Dtype>::Regularize(int param_id) {
         
         
         // If return
-        // const string& layer_name = this->net_->layer_names()[this->net_->param_layer_indices()[param_id].first];
-        // const int L = GetLayerIndex(param_id);
-        // if (L == -1) { return; }
-        const int L = param_id / 2; // TODO: improve
-        bool IF_find_layer_name = false;
-        std::map<string,int>::iterator it;
-        string layer_name;
-        for (it = APP::layer_index.begin(); it != APP::layer_index.end(); ++it) {
-            if (it->second == L) {
-                IF_find_layer_name = true;
-                layer_name = it->first;
-                break;
-            }
-        }
-        if (!IF_find_layer_name) { return; }
-        if (APP::iter_prune_finished[L] != INT_MAX) { return; }
-        const vector<int>& shape = net_params[param_id]->shape();
-        if (shape.size() != 4) { return; } // do not reg biases and fc layer
-        
+        const string layer_name = this->net_->layer_names()[this->net_->param_layer_indices()[param_id].first];
+        const int L = GetLayerIndex(param_id);
+        if (L == -1) { return; }
+        #ifdef ShowTimingLog
+        cout << layer_name << " Reg_Weight start timing" << endl;
+        clock_t t1 = clock();
+        #endif
         
         const Dtype* weight = net_params[param_id]->cpu_data();
-        Dtype* muweight = net_params[param_id]->mutable_cpu_data();
         const int count = net_params[param_id]->count();
         
-        // estimate threhold score
-        Dtype score_min = 999;
-        Dtype score_max = -1;
-        for (int i = 0; i < count; ++i) {
-            if (i < 20) {
-                cout << muweight[i] << " ";
+        if (APP::step_ % APP::prune_interval == 0) {
+            // estimate threhold score
+            const Dtype score_min = 0;
+            Dtype score_max = -1;
+            for (int i = 0; i < count; ++i) {
+                if (fabs(weight[i]) > score_max) {
+                    score_max = fabs(weight[i]);
+                }
             }
-            if (fabs(muweight[i]) > score_max) {
-                score_max = fabs(muweight[i]);
-            }
-            if (fabs(muweight[i]) < score_min) {
-                score_min = fabs(muweight[i]);
-            }
-        }
-        cout << endl;
-        // Dtype score_max=0.246919, score_min=1.91997e-05;
-        const Dtype u = (score_max + score_min) / 2; // mean
-        const Dtype sigma = (score_max - score_min) / 8; //stddev assumption: all weights are included in 4-sigma scope
-        const Dtype prune_ratio = (APP::prune_ratio[L] < 0.5) ? 1 - APP::prune_ratio[L] : APP::prune_ratio[L]; // the lookup table only contains half of the normal distribution
-        const Dtype normalized_prune_ratio = round(prune_ratio / 0.05) * 0.05; // e.g. 0.63 -> 0.65; 0.05 is the prune ratio step 
-        const int index = int((normalized_prune_ratio - 0.5) / 0.05);
-        const Dtype normal_lookup_table[10] = {0, 0.125, 0.255, 0.385, 0.525, 0.675, 0.845, 1.035, 1.285, 1.645};
-        const Dtype score_thr = APP::prune_ratio[L] > 0.5
-                                    ? u + normal_lookup_table[index] * sigma
-                                    : u - normal_lookup_table[index] * sigma;
-        assert(score_thr < score_max && score_thr > score_min);
-        cout << layer_name << " u=" << u << " sigma=" << sigma 
-                           << " | score_thr=" << score_thr << " score_max=" << score_max << " score_min=" << score_min << endl;
-
-        // assign Delta
-        const Dtype AA = APP::AA;
-        const Dtype k1 = AA / (score_thr - score_min);
-        const Dtype k2 = AA / (score_max - score_thr);
-        vector<Dtype> reg_multiplier(count, -1);
-        for (int i = 0; i < count; ++i) {
-            const Dtype Delta = fabs(weight[i]) < score_thr 
-                                    ? AA - k1 * (fabs(weight[i]) - score_min)
-                                    : k2 * (score_thr - fabs(weight[i]));
-            const Dtype old_reg = APP::history_reg[L][i];
-            const Dtype new_reg = max(old_reg + Delta, Dtype(0));
-            APP::history_reg[L][i] = new_reg;
-            reg_multiplier[i] = new_reg;
+            cout << endl;
+            #ifdef ShowTimingLog
+            cout  << "  after calculate score max/min: " << (double)(clock() - t1)/CLOCKS_PER_SEC << "s" << endl;
+            #endif
             
-            if (new_reg < old_reg) {
-                cout << "recover reg: " << layer_name << "-" << i 
-                     << "  old reg: " << old_reg
-                     << "  new reg: " << new_reg << endl;
+            const Dtype u = (score_max + score_min) / 2; // mean
+            const Dtype sigma = (score_max - score_min) / 8; //stddev assumption: all weights are included in 4-sigma scope
+            const Dtype prune_ratio = (APP::prune_ratio[L] < 0.5) ? 1 - APP::prune_ratio[L] : APP::prune_ratio[L]; // the lookup table only contains half of the normal distribution
+            const Dtype normalized_prune_ratio = round(prune_ratio / 0.05) * 0.05; // e.g. 0.63 -> 0.65; 0.05 is the prune ratio step 
+            const int index = int((normalized_prune_ratio - 0.5) / 0.05);
+            const Dtype normal_lookup_table[10] = {0, 0.125, 0.255, 0.385, 0.525, 0.675, 0.845, 1.035, 1.285, 1.645};
+            const Dtype score_thr = APP::prune_ratio[L] > 0.5
+                                        ? u + normal_lookup_table[index] * sigma
+                                        : u - normal_lookup_table[index] * sigma;
+            if (score_thr > score_max || score_thr < score_min) {
+                cout << "Wrong: score_thr in Reg_Weight is out of range." << endl;
+                exit(1);
+            }
+            cout << layer_name << " u=" << u << " sigma=" << sigma << " | score_thr=" << score_thr << " score_max=" << score_max << " score_min=" << score_min << endl;
+
+            //Assign Delta
+            const Dtype AA = APP::AA;
+            const Dtype k1 = AA / (score_thr - score_min);
+            const Dtype k2 = AA / (score_max - score_thr);
+            Dtype* muhistory_reg_ = history_reg_[param_id]->mutable_cpu_data();
+            for (int i = 0; i < count; ++i) {
+                const Dtype Delta = fabs(weight[i]) < score_thr 
+                                        ? AA - k1 * (fabs(weight[i]) - score_min)
+                                        : k2 * (score_thr - fabs(weight[i]));
+                muhistory_reg_[i] = max(muhistory_reg_[i] + Delta, Dtype(0));
             }
         }
+        #ifdef ShowTimingLog
+        cout  << "  after calculate reg term: " << (double)(clock() - t1)/CLOCKS_PER_SEC << "s" << endl;
+        #endif
         
-        for (int i = 0; i < count; ++i) {
-            net_params[param_id]->mutable_cpu_diff()[i] += reg_multiplier[i] * weight[i];
-        }
+        
+        //Apply Reg
+        caffe_gpu_mul(count,
+                      net_params[param_id]->gpu_data(),
+                      history_reg_[param_id]->gpu_data(),
+                      tmp_[param_id]->mutable_gpu_data());
+        #ifdef ShowTimingLog
+        cout << "  after gpu mul: " << (double)(clock() - t1)/CLOCKS_PER_SEC << "s" << endl;
+        #endif
+        
+        caffe_gpu_add(count,
+                      tmp_[param_id]->gpu_data(),
+                      net_params[param_id]->gpu_diff(),
+                      net_params[param_id]->mutable_gpu_diff()); 
+        #ifdef ShowTimingLog
+        cout << "  after gpu add, end of Reg_Weight: " << (double)(clock() - t1)/CLOCKS_PER_SEC << "s" << endl;
+        #endif
 
       } else {
           LOG(FATAL) << "Unknown regularization type: " << regularization_type;

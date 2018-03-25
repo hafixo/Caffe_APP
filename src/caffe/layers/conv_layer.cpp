@@ -188,15 +188,14 @@ void ConvolutionLayer<Dtype>::Print(const int& L, char mode) {
             cout.width(info.size());  cout << info_data[j] << endl;
         }
     } else if (APP::prune_unit == "Weight") {
-        for (int i = 0; i < SHOW_NUM; ++i) {
+        for (int i = 0; i < APP::show_num_weight; ++i) {
             // print Index
             cout.width(3); cout << "w";
             cout.width(2); cout << i+1 << "   ";
             
             // print blob
-            char s[20]; sprintf(s, "%7.5f", fabs(d[i]));
-            if (mode == 'f') { sprintf(s, "%f", fabs(w[i])); }
-            cout.width(blob.size()); cout << s << "   ";
+            const Dtype ss = (mode == 'f') ? w[i] : d[i];
+            cout.width(blob.size()); cout << ss << "   ";
             
             // print Mask
             cout.width(4);  cout << APP::masks[L][i] << "   ";

@@ -131,7 +131,7 @@ void ConvolutionLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
         }
     }
         // Summary print 
-        if (mthd != "None" && L < APP::show_num_layer && IF_prune) {
+        if (APP::step_ % 5 == 0 && IF_prune && mthd != "None" && L < APP::show_num_layer) {
             cout << layer_name << "  IF_prune: " << IF_prune 
                  << "  pruned_ratio: " << APP::pruned_ratio[L];
             cout << "  pruned_ratio_row: " << APP::num_pruned_row[L] * 1.0 / num_row << "(" << APP::num_pruned_row[L] << ")"

@@ -164,9 +164,8 @@ Index   DiffBeforeMasked   Mask   Prob - conv1
             cout.width(2); cout << i+1 << "   ";
             
             // print blob
-            char s[50]; sprintf(s, "%7.5f", fabs(d[i]));
-            if (mode == 'f') { sprintf(s, "%f", fabs(w[i])); }
-            cout.width(blob.size()); cout << s << "   ";
+            const Dtype ss = (mode == 'f') ? w[i] : d[i];
+            cout.width(blob.size()); cout << ss << "   ";
             
             // print Mask
             cout.width(4);  cout << APP::masks[L][i] << "   ";
@@ -264,7 +263,6 @@ void InnerProductLayer<Dtype>::UpdatePrunedRatio() {
     const int count   = this->blobs_[0]->count();
     const int num_row = this->blobs_[0]->shape()[0];
     const int num_col = count / num_row;
-    
     
     if (APP::prune_unit == "Weight") {
         for (int i = 0; i < num_row; ++i) {
@@ -452,33 +450,26 @@ void InnerProductLayer<Dtype>::PruneMinimals() {
     const int num_col = count / num_row;
     const int L = APP::layer_index[this->layer_param_.name()];
     
-
-    
     if (APP::prune_unit == "Weight") {
         for (int i = 0; i < count; ++i) {
             if (APP::IF_weight_pruned[L][i]) { continue; }
             if (fabs(muweight[i]) < APP::prune_threshold || APP::history_reg[L][i] >= APP::target_reg) {
                 muweight[i] = 0;
                 APP::masks[L][i] = 0;
-                APP::num_pruned_weight[L] += 1;
+                ++ APP::num_pruned_weight[L];
                 APP::IF_weight_pruned[L][i] = true;
-                APP::history_rank[L][i]  = APP::step_ - 1000000 - (APP::history_reg[L][i] - APP::target_reg);
-                APP::hhistory_rank[L][i] = APP::step_ - 1000000 - (APP::history_reg[L][i] - APP::target_reg); 
+                // To abolish
+                // APP::history_rank[L][i]  = APP::step_ - 1000000 - (APP::history_reg[L][i] - APP::target_reg);
+                // APP::hhistory_rank[L][i] = APP::step_ - 1000000 - (APP::history_reg[L][i] - APP::target_reg); 
             }
         }
     } else if (APP::prune_unit == "Col") {
         for (int j = 0; j < num_col; ++j) {
             if (APP::IF_col_pruned[L][j][0]) { continue; }
-            // bool IF_all_weights_are_small = true;
             Dtype sum = 0;
-            
-            // cout << "    PruneMinimals start timing" << endl;
-            // clock_t t1 = clock();
             for (int i = 0; i < num_row; ++i) {
                 sum += fabs(muweight[i * num_col + j]);
             }
-            // cout << "    calculate sum: " << (double)(clock() - t1) / CLOCKS_PER_SEC << endl;
-            
             sum /= num_row;
             if (sum < APP::prune_threshold ||  APP::history_reg[L][j] >= APP::target_reg) {
                 for (int i = 0; i < num_row; ++i) {
@@ -489,7 +480,6 @@ void InnerProductLayer<Dtype>::PruneMinimals() {
                 APP::IF_col_pruned[L][j][0] = true;
                 APP::history_rank[L][j] = APP::step_ - 1000000 - (APP::history_reg[L][j] - APP::target_reg);  // the worser column, the earlier pruned column will be ranked in fronter
             }
-            // cout << "    update masks: " << (double)(clock() - t1) / CLOCKS_PER_SEC << endl;
         }
     } else if (APP::prune_unit == "Row") {
         for (int i = 0; i < num_row; ++i) {

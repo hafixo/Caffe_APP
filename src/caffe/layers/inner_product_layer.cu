@@ -91,12 +91,12 @@ void InnerProductLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
         
         // Update masks
         if (IF_prune && APP::iter_prune_finished[L] == INT_MAX) {
-            if (coremthd_ == "Reg") {
+            if (APP::prune_coremthd.substr(0,3) == "Reg") {
                 if (APP::step_ % 100 == 0) {  PruneMinimals(); }
                 #ifdef ShowTimingLog
                 cout << "  after PruneMinimals: " << (double)(clock() - t1) / CLOCKS_PER_SEC << endl;
                 #endif
-            } else if (coremthd_ == "PP" && APP::prune_unit == "Weight") {
+            } else if (APP::prune_coremthd.substr(0,2)== "PP" && APP::prune_unit == "Weight") {
                 ProbPruneWeight(APP::prune_interval);
             }
             UpdatePrunedRatio();
@@ -106,7 +106,7 @@ void InnerProductLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
         }
         
         // Summary print
-        if (mthd != "None" && L < APP::show_num_layer && IF_prune) {
+        if (APP::step_ % 5 == 0 && IF_prune && mthd != "None" && L < APP::show_num_layer) {
                cout << layer_name << "  IF_prune: " << IF_prune 
                  << "  pruned_ratio: " << APP::pruned_ratio[L] 
                  << "  prune_ratio: " << APP::prune_ratio[L] << endl;

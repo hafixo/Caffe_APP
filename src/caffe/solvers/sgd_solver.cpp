@@ -77,20 +77,15 @@ void SGDSolver<Dtype>::PreSolve() {
   history_.clear();
   update_.clear();
   temp_.clear();
+  tmp_.clear(); // @minsuntse, for reg pruning
+  history_reg_.clear(); // @mingsuntse
   for (int i = 0; i < net_params.size(); ++i) {
     const vector<int>& shape = net_params[i]->shape();
     history_.push_back(shared_ptr<Blob<Dtype> >(new Blob<Dtype>(shape)));
     update_.push_back(shared_ptr<Blob<Dtype> >(new Blob<Dtype>(shape)));
-    temp_.push_back(shared_ptr<Blob<Dtype> >(new Blob<Dtype>(shape)));    
-  }
-  
-  // initialize history reg, WANGHUAN
-  for (int i = 0; i < net_params.size(); ++i) {
-      const vector<int>& shape = net_params[i]->shape();  
-      const int num_col = net_params[i]->count() / shape[0];
-      if (shape.size() != 4) continue; // do not reg fc layers and biases
-      vector<Dtype> tmp(num_col, 0);
-      history_reg_.push_back(tmp);
+    temp_.push_back(shared_ptr<Blob<Dtype> >(new Blob<Dtype>(shape)));
+    history_reg_.push_back(shared_ptr<Blob<Dtype> >(new Blob<Dtype>(shape))); // @mingsuntse
+    tmp_.push_back(shared_ptr<Blob<Dtype> >(new Blob<Dtype>(shape))); // @mingsuntse
   }
 }
 
@@ -301,16 +296,16 @@ void SGDSolver<Dtype>::Regularize(int param_id) {
         const Dtype* weight = net_params[param_id]->cpu_data();
         const Dtype col_reg = APP::col_reg;
         const int count = net_params[param_id]->count();
-        const int num_filter = net_params[param_id]->shape()[0];
-        const int num_col = count / num_filter;
+        const int num_row = net_params[param_id]->shape()[0];
+        const int num_col = count / num_row;
       
         Dtype* sqrted_energy = (Dtype*) malloc (sizeof(Dtype*) * count); // demoninator of SSL reg
         for (int j = 0; j < num_col; ++j) {
           Dtype sum = 0;
-          for (int i = 0; i < num_filter; ++i) { 
+          for (int i = 0; i < num_row; ++i) { 
             sum += weight[i * num_col + j] * weight[i * num_col + j]; 
           } 
-          for (int i = 0; i < num_filter; ++i) { 
+          for (int i = 0; i < num_row; ++i) { 
             sqrted_energy[i * num_col + j] = (sum == 0) ? 1 : sqrt(sum); 
           }
           
@@ -356,8 +351,8 @@ void SGDSolver<Dtype>::Regularize(int param_id) {
 
         const Dtype* weight = net_params[param_id]->cpu_data();
         const int count = net_params[param_id]->count();
-        const int num_filter = net_params[param_id]->shape()[0];
-        const int num_col = count / num_filter;
+        const int num_row = net_params[param_id]->shape()[0];
+        const int num_col = count / num_row;
         const int num_col_to_prune = ceil(num_col * APP::prune_ratio[L]);
         const int num_pruned_col = APP::num_pruned_col[L];
         if (num_pruned_col >= num_col_to_prune) { return; }
@@ -366,16 +361,17 @@ void SGDSolver<Dtype>::Regularize(int param_id) {
             // ***********************************************************
             // Sort 01: sort by L1-norm
             typedef std::pair<Dtype, int> mypair;
-            vector<mypair> col_score(num_col); // score of each column
-            for (int j = 0; j < num_col; ++j) { // j: column number
+            vector<mypair> col_score(num_col);
+            for (int j = 0; j < num_col; ++j) { //j: column number
                 col_score[j].second = j;
-                col_score[j].first  = 0;
-                for (int i = 0; i < num_filter; ++i) {
-                    col_score[j].first += fabs(weight[i * num_col + j]);
+                if (APP::IF_col_pruned[L][j][0]) {
+                    col_score[j].first = -1; //APP::history_rank[L][j]; // make the pruned sink down
+                    continue;
                 }
-                if (APP::IF_col_pruned[L][j][0]) { // TODEBUG: fix this [0]
-                    col_score[j].first = -1; // APP::history_rank[L][j]; // make the pruned sink down
-                }            
+                col_score[j].first = 0;
+                for (int i = 0; i < num_row; ++i) {
+                    col_score[j].first += fabs(weight[i * num_col + j]); //How to speedup??
+                }
             }
             sort(col_score.begin(), col_score.end());
             
@@ -438,13 +434,19 @@ void SGDSolver<Dtype>::Regularize(int param_id) {
             const Dtype N1 = -log(kk)/alpha;
             Dtype Delta = 0, old_reg = 0, new_reg = 0;
             
+            Dtype* muhistory_reg_ = history_reg_[param_id]->mutable_cpu_data();
             for (int j = 0; j < num_col - num_pruned_col; ++j) { // j: rank 
                 const int col_of_rank_j = col_history_rank[j + num_pruned_col].second; // Note the real rank is j + num_pruned_col
                 Delta = j < N1 ? AA * exp(-alpha * j) : -AA * exp(-alpha * (2*N1-j)) + 2*kk*AA;
                 old_reg = APP::history_reg[L][col_of_rank_j];
                 new_reg = std::max(old_reg + Delta, Dtype(0));
                 APP::history_reg[L][col_of_rank_j] = new_reg;
+                for (int i = 0; i < num_row; ++i) {
+                    muhistory_reg_[i * num_col + col_of_rank_j] = new_reg;
+                }
             }
+            // cudaMemcpy(muhistory_reg_, this->history_reg2, sizeof(Dtype) * count, cudaMemcpyHostToDevice);
+            
         }
         cout  << "  after calculate reg term: " << (double)(clock() - t1)/CLOCKS_PER_SEC << "s" << endl;
         
@@ -457,26 +459,19 @@ void SGDSolver<Dtype>::Regularize(int param_id) {
                 cout << mark2 << j+1 << ":    " << APP::history_reg[L][j] << endl;
             }
         }
-
-        // Apply reg
-        for (int i = 0; i < count; ++i) {
-            net_params[param_id]->mutable_cpu_diff()[i] += APP::history_reg[L][i % num_col] * weight[i];
-        }
+                
+        //Apply Reg
+        caffe_gpu_mul(count,
+                      net_params[param_id]->gpu_data(),
+                      history_reg_[param_id]->gpu_data(),
+                      tmp_[param_id]->mutable_gpu_data());
+        cout << "  after gpu mul: " << (double)(clock() - t1)/CLOCKS_PER_SEC << "s" << endl;
         
-        /*
-        cout  << "  before caffe_gpu_axpy: " << (double)(clock() - t1)/CLOCKS_PER_SEC << "s" << endl;
-        caffe_gpu_axpy(net_params[param_id]->count(),
-                       local_decay,
-                       net_params[param_id]->gpu_data(),
-                       net_params[param_id]->mutable_gpu_diff()); 
-        
-        caffe_gpu_my_axpy(net_params[param_id]->count(),
-               local_decay,
-               net_params[param_id]->gpu_data(),
-               net_params[param_id]->mutable_gpu_diff());
-        */
-               
-        cout << "  after applying reg, end of Reg_Col: " << (double)(clock() - t1)/CLOCKS_PER_SEC << "s" << endl;
+        caffe_gpu_add(count,
+                      tmp_[param_id]->gpu_data(),
+                      net_params[param_id]->gpu_diff(),
+                      net_params[param_id]->mutable_gpu_diff()); 
+        cout << "  after gpu add, end of Reg_Col: " << (double)(clock() - t1)/CLOCKS_PER_SEC << "s" << endl;
         
       } else if (regularization_type == "Reg_Weight") {
         // SR used to compress large DNN, not using ranking 

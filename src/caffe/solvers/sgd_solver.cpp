@@ -365,6 +365,10 @@ void SGDSolver<Dtype>::Regularize(int param_id) {
         const int num_pruned_col = APP::num_pruned_col[L];
         if (num_pruned_col >= num_col_to_prune) { return; }
         
+        if (APP::prune_interval == 0) {
+            cout << "Wrong: prune_interval not set, please check" << endl;
+            exit(1);
+        }
         if (APP::step_ % APP::prune_interval == 0) {
             // ***********************************************************
             // Sort 01: sort by L1-norm

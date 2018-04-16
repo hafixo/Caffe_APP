@@ -98,6 +98,7 @@ public:
     static long first_time;
     static long last_time;
     static int first_iter;
+    static int num_negative;
     /// --------------------------------
     
     static int window_size;  

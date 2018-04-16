@@ -125,7 +125,7 @@ void SGDSolver<Dtype>::ApplyUpdate() {
   #ifdef ShowTimingLog
   cout << "  after clip_gradients: " << (double)(clock() - t1) / CLOCKS_PER_SEC << endl;
   #endif
-  if (APP::step_ % 100 == 0) {  
+  if (APP::step_ % 1 == 0) {  
     ClearHistory(); // There is no need to ClearHistory each iteration.
   }
   #ifdef ShowTimingLog
@@ -579,7 +579,53 @@ void SGDSolver<Dtype>::Regularize(int param_id) {
         cout << "  after gpu add, end of Reg_Weight: " << (double)(clock() - t1)/CLOCKS_PER_SEC << "s" << endl;
         #endif
 
-      } else {
+      } else if (regularization_type == "ForcePositiveWeight") {
+        caffe_gpu_axpy(net_params[param_id]->count(),
+            local_decay,
+            net_params[param_id]->gpu_data(),
+            net_params[param_id]->mutable_gpu_diff());
+            
+        const string& layer_name = this->net_->layer_names()[this->net_->param_layer_indices()[param_id].first];
+        const int L = GetLayerIndex(param_id);
+        if (L == -1) { return; }
+            
+        const Dtype* weight = net_params[param_id]->cpu_data();
+        Dtype* muhistory_reg_ = history_reg_[param_id]->mutable_cpu_data();
+        const int count = net_params[param_id]->count();
+        
+        if (history_reg_[param_id]->count() != APP::history_reg[L].size()) {
+            cout << "Wrong: reg size does not equal! layer: " << layer_name << ", its layer_index: " << L << endl;
+            cout << history_reg_[param_id]->count() << " " << count << " " << APP::history_reg[L].size() << endl;
+            exit(1);
+        }
+        Dtype local_reg_multiplier = 1.0;
+        if (L == 0) { 
+            local_reg_multiplier *= 4; 
+        }
+        for (int i = 0; i < count; ++i) {
+            if (weight[i] < 0) {
+                muhistory_reg_[i] = local_reg_multiplier * min((Dtype)APP::AA, (Dtype)(APP::step_ * 5e-5));
+            } else if (weight[i] > 0) {
+                muhistory_reg_[i] = -1.0* min((Dtype)0.1 * local_decay / weight[i], (Dtype)10) ;
+                // if (i < 20) { cout << muhistory_reg_[i] << " "; }
+            } else {
+                muhistory_reg_[i] = 0;
+            }
+            APP::history_reg[L][i] = muhistory_reg_[i];
+        }
+        //cout << endl;
+        
+        // Apply Reg
+        caffe_gpu_mul(count,
+                      net_params[param_id]->gpu_data(),
+                      history_reg_[param_id]->gpu_data(),
+                      tmp_[param_id]->mutable_gpu_data());
+        
+        caffe_gpu_add(count,
+                      tmp_[param_id]->gpu_data(),
+                      net_params[param_id]->gpu_diff(),
+                      net_params[param_id]->mutable_gpu_diff());          
+      } else {    
           LOG(FATAL) << "Unknown regularization type: " << regularization_type;
       }
     }

@@ -9,9 +9,19 @@ template <typename Dtype>
 __global__ void ReLUForward(const int n, const Dtype* in, Dtype* out,
     Dtype negative_slope) {
   CUDA_KERNEL_LOOP(index, n) {
-    out[index] = in[index] > 0 ? in[index] : in[index] * negative_slope;
+    // out[index] = in[index] > 1 ? in[index] : in[index] * negative_slope;
+    out[index] = in[index] > 0 ? in[index] : in[index] * negative_slope; // Original ReLU, commented by Ming.
   }
 }
+
+/*
+__global__ void ONNReLUForward(const int n, const Dtype* in, Dtype* out, Dtype negative_slope, Dtype intercept) {
+	CUDA__KERNEL_LOOP(index, n) {
+		out[index] = in[index] > intercept ? in[index] : in[index] * negative_slope;
+	}
+}
+*/
+
 
 template <typename Dtype>
 void ReLULayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
@@ -35,8 +45,12 @@ template <typename Dtype>
 __global__ void ReLUBackward(const int n, const Dtype* in_diff,
     const Dtype* in_data, Dtype* out_diff, Dtype negative_slope) {
   CUDA_KERNEL_LOOP(index, n) {
-    out_diff[index] = in_diff[index] * ((in_data[index] > 0)
-        + (in_data[index] <= 0) * negative_slope);
+    
+   // out_diff[index] = in_diff[index] * ((in_data[index] > 1)
+      //  + (in_data[index] <= 1) * negative_slope);
+   
+   out_diff[index] = in_diff[index] * ((in_data[index] > 0)
+        + (in_data[index] <= 0) * negative_slope); // Commented by Ming
   }
 }
 

@@ -107,36 +107,44 @@ void ConvolutionLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
         }
         
         // Print weight magnitude
-    if (APP::num_log > 0) {
-        if (APP::prune_unit == "Col") {
-            cout << "ave-magnitude_col " << APP::step_ << " " << layer_name << ":";
-            for (int j = 0; j < num_col; ++j) {
-                Dtype sum = 0;
-                for (int i = 0; i < num_row; ++i) {
-                    sum += fabs(muweight[i*num_col + j]);
-                }
-                cout << " " << sum;
-            }
-            cout << endl;
-        } else if (APP::prune_unit == "Row") {
-            cout << "ave-magnitude_row " << APP::step_ << " " << layer_name << ":";
-            for (int i = 0; i < num_row; ++i) {
-                Dtype sum = 0;
+        if (APP::num_log > 0) {
+            if (APP::prune_unit == "Col") {
+                cout << "ave-magnitude_col " << APP::step_ << " " << layer_name << ":";
                 for (int j = 0; j < num_col; ++j) {
-                    sum += fabs(muweight[i*num_col + j]);
+                    Dtype sum = 0;
+                    for (int i = 0; i < num_row; ++i) {
+                        sum += fabs(muweight[i*num_col + j]);
+                    }
+                    cout << " " << sum;
                 }
-                cout << " " << sum;
+                cout << endl;
+            } else if (APP::prune_unit == "Row") {
+                cout << "ave-magnitude_row " << APP::step_ << " " << layer_name << ":";
+                for (int i = 0; i < num_row; ++i) {
+                    Dtype sum = 0;
+                    for (int j = 0; j < num_col; ++j) {
+                        sum += fabs(muweight[i*num_col + j]);
+                    }
+                    cout << " " << sum;
+                }
+                cout << endl;
             }
-            cout << endl;
         }
-    }
+        
         // Summary print 
-        if (APP::step_ % 5 == 0 && IF_prune && mthd != "None" && L < APP::show_num_layer) {
+        int cnt_negative = 0;
+        for (int i = 0; i < count; ++i) {
+            if (muweight[i] < 0) {
+                ++ cnt_negative;
+            }
+        }
+        if (APP::step_ % APP::show_interval == 0 && IF_prune && mthd != "None" && L < APP::show_num_layer) {
             cout << layer_name << "  IF_prune: " << IF_prune 
                  << "  pruned_ratio: " << APP::pruned_ratio[L];
             cout << "  pruned_ratio_row: " << APP::num_pruned_row[L] * 1.0 / num_row << "(" << APP::num_pruned_row[L] << ")"
                  << "  pruned_ratio_col: " << APP::num_pruned_col[L] * 1.0 / num_col << "(" << APP::num_pruned_col[L] << ")";
-            cout << "  prune_ratio: "  << APP::prune_ratio[L] << endl;
+            cout << "  prune_ratio: "  << APP::prune_ratio[L] 
+	         << "  num_negative: " << cnt_negative << "(" << cnt_negative*1.0/count << ")" << endl;
         }
         
     } else if (this->phase_ == TEST && IF_prune && APP::iter_prune_finished[L] == INT_MAX && APP::prune_coremthd.substr(0,2) == "PP") {
@@ -282,8 +290,6 @@ void ConvolutionLayer<Dtype>::Backward_gpu(const vector<Blob<Dtype>*>& top,
     /// ADDED BY WANGHUAN ------------------------------------------
     Dtype* muweight_diff = this->blobs_[0]->mutable_cpu_diff();      
     const int count   = this->blobs_[0]->count();
-    const int num_row = this->blobs_[0]->shape()[0];
-    const int num_col = count / num_row;
     const int L = APP::layer_index[this->layer_param_.name()];
     
     #ifdef ShowTimingLog
@@ -295,27 +301,8 @@ void ConvolutionLayer<Dtype>::Backward_gpu(const vector<Blob<Dtype>*>& top,
     if (L == APP::show_layer && APP::step_ % APP::show_interval == 0 && APP::inner_iter == 0) {
         Print(L, 'b');
     }
-    
-    /// Diff log
-    if (APP::num_log) {
-        const int num_log = APP::log_index[L].size();
-        for (int i = 0; i < num_log; ++i) {
-            const int index = APP::log_index[L][i];
-            Dtype sum = 0;
-            for (int r = 0; r < num_row; ++r) {
-                sum += fabs(muweight_diff[r * num_col + index]);
-            }
-            sum /= num_row;
-            APP::log_diff[L][i].push_back(sum);
-        }
-    }
-    
-    if (this->IF_mask) {
-        if (APP::iter_prune_finished[L] == INT_MAX) {
-            if (APP::prune_method == "TP" && (APP::step_ - 1) % APP::prune_interval == 0) {
-                TaylorPrune(top);
-            }
-        }
+
+    if (APP::prune_method != "None" && APP::pruned_ratio[L] > 0) {
         for (int j = 0; j < count; ++j) { 
             muweight_diff[j] *= APP::masks[L][j]; 
         }

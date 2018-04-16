@@ -84,11 +84,11 @@ namespace caffe {
     int APP::show_layer = 1; 
     int APP::show_num_layer = 20;
     int APP::show_num_weight = 20; 
-    int APP::show_interval = 10;
+    int APP::show_interval = 1;
     long APP::first_time = 0;
     long APP::last_time = 0;
     int APP::first_iter = 0;
-    
+    int APP::num_negative = 0;
     /// --------------------------------
 
     // use window proposal or score decay ----- legacy

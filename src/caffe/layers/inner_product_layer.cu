@@ -106,10 +106,17 @@ void InnerProductLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
         }
         
         // Summary print
-        if (APP::step_ % 5 == 0 && IF_prune && mthd != "None" && L < APP::show_num_layer) {
+	int cnt_negative = 0;
+	for (int i = 0; i < count; ++i) {
+            if (muweight[i] < 0) {
+		   ++ cnt_negative;
+	    }
+	}
+        if (APP::step_ % APP::show_interval == 0 && IF_prune && mthd != "None" && L < APP::show_num_layer) {
                cout << layer_name << "  IF_prune: " << IF_prune 
                  << "  pruned_ratio: " << APP::pruned_ratio[L] 
-                 << "  prune_ratio: " << APP::prune_ratio[L] << endl;
+                 << "  prune_ratio: " << APP::prune_ratio[L] 
+		 << "  num_negative: " << cnt_negative << "(" << cnt_negative*1.0/count << ")" << endl;
         }
     } else if (this->phase_ == TEST && IF_prune && APP::iter_prune_finished[L] == INT_MAX && coremthd_ == "PP") {
         if (APP::prune_unit == "Weight") {
@@ -177,12 +184,12 @@ void InnerProductLayer<Dtype>::Backward_gpu(const vector<Blob<Dtype>*>& top,
     
     // -------------------------------------------------
     const int L = APP::layer_index[this->layer_param_.name()];
-    if (APP::prune_method != "None" && APP::pruned_ratio[L] > 0) {
-        // Print
-        if (L == APP::show_layer + APP::conv_layer_cnt && APP::step_ % APP::show_interval == 0 && APP::inner_iter == 0) {
-            Print(L, 'b');
-        }
+    // Print
+    if (L == APP::show_layer + APP::conv_layer_cnt && APP::step_ % APP::show_interval == 0 && APP::inner_iter == 0) {
+        Print(L, 'b');
+    }
         
+    if (APP::prune_method != "None" && APP::pruned_ratio[L] > 0) {
         const int count = this->blobs_[0]->count();
         Dtype* muweight_diff = this->blobs_[0]->mutable_cpu_diff();
         for (int i = 0; i < count; ++i) {

@@ -453,14 +453,23 @@ void InnerProductLayer<Dtype>::PruneMinimals() {
     if (APP::prune_unit == "Weight") {
         for (int i = 0; i < count; ++i) {
             if (APP::IF_weight_pruned[L][i]) { continue; }
-            if (fabs(muweight[i]) < APP::prune_threshold || APP::history_reg[L][i] >= APP::target_reg) {
-                muweight[i] = 0;
-                APP::masks[L][i] = 0;
-                ++ APP::num_pruned_weight[L];
-                APP::IF_weight_pruned[L][i] = true;
-                // To abolish
-                // APP::history_rank[L][i]  = APP::step_ - 1000000 - (APP::history_reg[L][i] - APP::target_reg);
-                // APP::hhistory_rank[L][i] = APP::step_ - 1000000 - (APP::history_reg[L][i] - APP::target_reg); 
+            if (APP::prune_method == "Reg-ONN_Weight") {
+                if (muweight[i] < 0 && (fabs(muweight[i]) < APP::prune_threshold || APP::history_reg[L][i] >= APP::target_reg)) { // only prune negative weights
+                    muweight[i] = 0;
+                    APP::masks[L][i] = 0;
+                    ++ APP::num_pruned_weight[L];
+                    APP::IF_weight_pruned[L][i] = true;
+                }
+            } else {
+               if (fabs(muweight[i]) < APP::prune_threshold || APP::history_reg[L][i] >= APP::target_reg) {
+                    muweight[i] = 0;
+                    APP::masks[L][i] = 0;
+                    ++ APP::num_pruned_weight[L];
+                    APP::IF_weight_pruned[L][i] = true;
+                    // To abolish
+                    // APP::history_rank[L][i]  = APP::step_ - 1000000 - (APP::history_reg[L][i] - APP::target_reg);
+                    // APP::hhistory_rank[L][i] = APP::step_ - 1000000 - (APP::history_reg[L][i] - APP::target_reg); 
+                }
             }
         }
     } else if (APP::prune_unit == "Col") {

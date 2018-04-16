@@ -65,6 +65,7 @@ void DataTransformer<Dtype>::Transform(const Datum& datum,
     mean = data_mean_.mutable_cpu_data();
   }
   if (has_mean_values) {
+	  //std::cout << "05" << std::endl;
     CHECK(mean_values_.size() == 1 || mean_values_.size() == datum_channels) <<
      "Specify either 1 mean_value or as many as channels: " << datum_channels;
     if (datum_channels > 1 && mean_values_.size() == 1) {
@@ -115,8 +116,10 @@ void DataTransformer<Dtype>::Transform(const Datum& datum,
             (datum_element - mean[data_index]) * scale;
         } else {
           if (has_mean_values) {
-            transformed_data[top_index] =
-              (datum_element - mean_values_[c]) * scale;
+		  //std::cout << "03" << std::endl;
+            //transformed_data[top_index] =
+              //(datum_element - mean_values_[c]) * scale;
+	    transformed_data[top_index] = (datum_element - mean_values_[c]) * scale + 1; // @Ming-onn
           } else {
             transformed_data[top_index] = datum_element * scale;
           }
@@ -260,6 +263,7 @@ void DataTransformer<Dtype>::Transform(const cv::Mat& cv_img,
     mean = data_mean_.mutable_cpu_data();
   }
   if (has_mean_values) {
+	  //std::cout << "04" << std::endl;
     CHECK(mean_values_.size() == 1 || mean_values_.size() == img_channels) <<
      "Specify either 1 mean_value or as many as channels: " << img_channels;
     if (img_channels > 1 && mean_values_.size() == 1) {
@@ -315,6 +319,8 @@ void DataTransformer<Dtype>::Transform(const cv::Mat& cv_img,
           if (has_mean_values) {
             transformed_data[top_index] =
               (pixel - mean_values_[c]) * scale;
+	      //std::cout << "01" << std::endl;
+	      
           } else {
             transformed_data[top_index] = pixel * scale;
           }
@@ -393,6 +399,7 @@ void DataTransformer<Dtype>::Transform(Blob<Dtype>* input_blob,
   }
 
   if (has_mean_values) {
+    //std::cout << "02" << std::endl;
     CHECK(mean_values_.size() == 1 || mean_values_.size() == input_channels) <<
      "Specify either 1 mean_value or as many as channels: " << input_channels;
     if (mean_values_.size() == 1) {

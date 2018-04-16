@@ -214,10 +214,45 @@ void ConvolutionLayer<Dtype>::UpdatePrunedRatio() {
     const int num_row = this->blobs_[0]->shape()[0];
     const int num_col = count / num_row;
     
+    if (APP::prune_unit == "Weight") {
+        for (int i = 0; i < num_row; ++i) {
+            if (APP::IF_row_pruned[L][i]) { continue; }
+            bool IF_whole_row_pruned = true;
+            for (int j = 0; j < num_col; ++j) {
+                if (!APP::IF_weight_pruned[L][i * num_col + j]) {
+                    IF_whole_row_pruned = false;
+                    break;
+                }
+            }
+            if (IF_whole_row_pruned) {
+                APP::IF_row_pruned[L][i] = true;
+                APP::num_pruned_row[L] += 1;
+            }
+        }
+        for (int j = 0; j < num_col; ++j) {
+            if (APP::IF_col_pruned[L][j][0]) { continue; }
+            bool IF_whole_col_pruned = true;
+            for (int i = 0; i < num_row; ++i) {
+                if (!APP::IF_weight_pruned[L][i * num_col + j]) {
+                    IF_whole_col_pruned = false;
+                    break;
+                }
+            }
+
+            if (IF_whole_col_pruned) {
+                APP::IF_col_pruned[L][j][0] = true;
+                APP::num_pruned_col[L] += 1;
+            }
+        }
+    }
     APP::pruned_ratio_col[L] = APP::num_pruned_col[L] / num_col;
     APP::pruned_ratio_row[L] = APP::num_pruned_row[L] * 1.0 / num_row;
-    APP::pruned_ratio[L] =  (APP::pruned_ratio_col[L] + APP::pruned_ratio_row[L]) 
-                           - APP::pruned_ratio_col[L] * APP::pruned_ratio_row[L];
+    if (APP::prune_unit == "Weight") {
+        APP::pruned_ratio[L] = APP::num_pruned_weight[L] * 1.0 / count;
+    } else {
+        APP::pruned_ratio[L] =  (APP::pruned_ratio_col[L] + APP::pruned_ratio_row[L]) 
+                               - APP::pruned_ratio_col[L] * APP::pruned_ratio_row[L];
+    }
 }
 
 
@@ -687,26 +722,46 @@ void ConvolutionLayer<Dtype>::PruneMinimals() {
     const int L = APP::layer_index[this->layer_param_.name()];
     const int group = APP::group[L];
 
-    for (int j = 0; j < num_col; ++j) {
-        if (APP::IF_col_pruned[L][j][0]) { continue; }
-        // bool IF_all_weights_are_small = true;
-        Dtype sum = 0;
-        for (int i = 0; i < num_row; ++i) {
-            sum += fabs(muweight[i * num_col + j]);
+    if (APP::prune_unit == "Weight") {
+        if (APP::prune_method == "Reg-ONN_Weight") {
+            for (int i = 0; i < count; ++i) {
+                if (APP::IF_weight_pruned[L][i] && muweight[i] != 0) {
+                    cout << "Wrong: mask = 0, while weight != 0, its value = " << muweight[i] << "  " << L << "-" << i << endl;
+                    exit(1);
+                }
+                if (APP::IF_weight_pruned[L][i]) { continue; }
+                if (muweight[i] < 0 && (fabs(muweight[i]) < APP::prune_threshold || APP::history_reg[L][i] >= APP::target_reg)) {
+                    muweight[i] = 0;
+                    APP::masks[L][i] = 0;
+                    APP::IF_weight_pruned[L][i] = true;
+                    ++ APP::num_pruned_weight[L];
+                }
+            }
+        } else {
         }
-        sum /= num_row;
-        if (sum < APP::prune_threshold ||  APP::history_reg[L][j] >= APP::target_reg) {
+    } else if (APP::prune_unit == "Row") {
+    } else if (APP::prune_unit == "Col") {
+        for (int j = 0; j < num_col; ++j) {
+            if (APP::IF_col_pruned[L][j][0]) { continue; }
+            // bool IF_all_weights_are_small = true;
+            Dtype sum = 0;
             for (int i = 0; i < num_row; ++i) {
-                muweight[i * num_col + j] = 0;
-                APP::masks[L][i * num_col + j] = 0; 
+                sum += fabs(muweight[i * num_col + j]);
             }
-            APP::num_pruned_col[L] += 1;
-            for (int g = 0; g < group; ++g) {
-                APP::IF_col_pruned[L][j][g] = true;
-            }
-            APP::history_rank[L][j] = APP::step_ - 1000000 - (APP::history_reg[L][j] - APP::target_reg);  // the worser column, the earlier pruned column will be ranked in fronter
-            
-        }        
+            sum /= num_row;
+            if (sum < APP::prune_threshold ||  APP::history_reg[L][j] >= APP::target_reg) {
+                for (int i = 0; i < num_row; ++i) {
+                    muweight[i * num_col + j] = 0;
+                    APP::masks[L][i * num_col + j] = 0; 
+                }
+                APP::num_pruned_col[L] += 1;
+                for (int g = 0; g < group; ++g) {
+                    APP::IF_col_pruned[L][j][g] = true;
+                }
+                APP::history_rank[L][j] = APP::step_ - 1000000 - (APP::history_reg[L][j] - APP::target_reg);  // the worser column, the earlier pruned column will be ranked in fronter
+                
+            }        
+        }
     }
 }
 

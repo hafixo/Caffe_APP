@@ -72,6 +72,7 @@ namespace caffe {
     bool APP::IF_compRatio_achieved = false;
     bool APP::IF_alpf = false; /// if all layer prune finished
     vector<float> APP::reg_to_distribute;
+    int APP::num_bit = 4;
     
 
     // 3. Logging
@@ -84,7 +85,7 @@ namespace caffe {
     int APP::show_layer = 1; 
     int APP::show_num_layer = 20;
     int APP::show_num_weight = 20; 
-    int APP::show_interval = 1;
+    int APP::show_interval = 10;
     long APP::first_time = 0;
     long APP::last_time = 0;
     int APP::first_iter = 0;

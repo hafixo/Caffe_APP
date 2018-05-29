@@ -606,7 +606,7 @@ void SGDSolver<Dtype>::Regularize(int param_id) {
             if (weight[i] < 0) {
                 muhistory_reg_[i] = local_reg_multiplier * min((Dtype)APP::AA, (Dtype)(APP::step_ * 5e-5));
             } else if (weight[i] > 0) {
-                muhistory_reg_[i] = -1.0* min((Dtype)0.1 * local_decay / weight[i], (Dtype)10) ;
+                muhistory_reg_[i] = -1.0* min((Dtype)0.001 * local_decay / weight[i], (Dtype)10) ;
                 // if (i < 20) { cout << muhistory_reg_[i] << " "; }
             } else {
                 muhistory_reg_[i] = 0;

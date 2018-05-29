@@ -160,6 +160,21 @@ void ConvolutionLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
         this->IF_restore = true;
     }
     
+    // Quantization ------------------------------
+    if (APP::num_bit) {
+        const int n = pow(2, APP::num_bit) - 1;
+        for (int i = 0; i < count; ++i) {
+            muweight[i] = round(muweight[i] * n) / n;
+        }
+        // After Quantization, print
+        if (this->phase_ == TRAIN && L == APP::show_layer && APP::step_ % APP::show_interval == 0) {
+            Print(L, 'f');
+        }
+    }
+    // -------------------------------------------
+    
+    
+    
     #ifdef ShowTimingLog
     cout << " after prune, before GEMM: " << (double)(clock() - t1) / CLOCKS_PER_SEC << endl;
     #endif

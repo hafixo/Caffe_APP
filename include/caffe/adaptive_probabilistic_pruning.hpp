@@ -83,6 +83,7 @@ public:
     static bool IF_compRatio_achieved;
     static bool IF_alpf; 
     static vector<float> reg_to_distribute;
+    static int num_bit;
     
     // About logging
     static int num_log;

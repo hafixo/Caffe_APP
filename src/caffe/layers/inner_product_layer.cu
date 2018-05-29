@@ -105,6 +105,10 @@ void InnerProductLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
             }
         }
         
+        
+
+        
+        
         // Summary print
 	int cnt_negative = 0;
 	for (int i = 0; i < count; ++i) {
@@ -133,9 +137,26 @@ void InnerProductLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
             this->IF_restore = true;
         }
     }
+
+    // Quantization ------------------------------
+    if (this->phase_ == TRAIN && APP::num_bit) {
+        const int n = pow(2, APP::num_bit) - 1;
+        for (int i = 0; i < count; ++i) {
+            muweight[i] = round(muweight[i] * n) / n;
+        }
+        // After Quantization, print
+        if (L == APP::show_layer && APP::step_ % APP::show_interval == 0) {
+            Print(L, 'f');
+        }
+    }
+    
+    // -------------------------------------------
+
     #ifdef ShowTimingLog
     cout << "  before GEMM: " << (double)(clock() - t1) / CLOCKS_PER_SEC << endl;
     #endif
+    
+    
   // ------------------------------------------------
   
   const Dtype* bottom_data = bottom[0]->gpu_data();
